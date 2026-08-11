@@ -11,3 +11,8 @@ data/processed/*
 .DS_Store
 docker/postgres_data/
 mlruns/
+
+# Dissertation drafts: intentionally never pushed to GitHub (avoid a public
+# copy creating a similarity-checker false positive against the student's
+# own submission).
+dissertation/
