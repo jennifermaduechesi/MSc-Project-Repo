@@ -3,7 +3,7 @@
 Student: Maduechesi Chidiebere Jennifer
 Matric: 25120133019
 Supervisor: Solomon Alile
-Secondary Supervisor: Dr Abdul
+Secondary Supervisor: Dr Adubi
 University: Pan Atlantic University
 Programme: MSc Data Science
 Track: Security & Civic — Project 08
@@ -86,16 +86,17 @@ Validation strategy: **rolling-origin time-series cross-validation** — train o
 An R Shiny dashboard in a **Claymorphism** visual style, designed for non-STEM users (state officials, security council members) rather than data scientists. Inputs are kept minimal: pick a state, then an LGA (dropdown or map click) — the date window defaults automatically to "next 7 days," no parameter tuning exposed. Output: a color-coded LGA risk map (Low / Medium / High), the underlying probability score, and a plain-language driver explanation generated via Claude (e.g., "Risk is elevated due to an upcoming festival and a recent ransom payment in a neighboring LGA") instead of raw feature-importance or SHAP plots.
 
 ## Project Phases
-*Assumption: built across the full runway from today (Aug 11) to the Sept 15 deadline (~5 weeks) since "3 weeks" and "Sept 15" don't fully align — adjust if the real constraint is 3 weeks.*
+Active build is 3 weeks (Aug 11 – Sep 1); the remaining time to the Sep 15 deadline is held as buffer for supervisor feedback, rework, and final submission prep rather than counted as build time.
 
 | Phase | Focus | Dates |
 |---|---|---|
-| 1 | Data foundation: ACLED API access, PostgreSQL+PostGIS+pgvector schema, Kafka pipeline skeleton, confirm Twitter/Telegram access constraints, ground-truth check against IHS Security domain knowledge | Aug 11 – 17 |
-| 2 | NLP & feature engineering: spaCy/SBERT entity extraction, actor-network graph construction, festival/military-ops event calendars, PostGIS spatial-lag features | Aug 18 – 24 |
-| 3 | Baseline & core model: logistic regression baseline, XGBoost space-time model, rolling-origin CV harness, MLflow experiment tracking | Aug 25 – 31 |
-| 4 | Graph-enhanced model & explainability: PyTorch Geometric embeddings, driver-explainability layer, Claude narrative generation | Sep 1 – 5 |
-| 5 | App build & validation: R Shiny Claymorphism dashboard, connect model to map, usability pass with a non-STEM proxy user, finalize PR-AUC / Brier / Recall@K on holdout | Sep 6 – 10 |
-| 6 | Write-up, ethics/limitations, final QA, submission | Sep 11 – 15 |
+| 1 | Data foundation: ACLED API access, PostgreSQL+PostGIS+pgvector schema, Kafka pipeline skeleton, confirm Twitter/Telegram access constraints, ground-truth check against IHS Security domain knowledge | Aug 11 – 14 |
+| 2 | NLP & feature engineering: spaCy/SBERT entity extraction, actor-network graph construction, festival/military-ops event calendars, PostGIS spatial-lag features | Aug 15 – 18 |
+| 3 | Baseline & core model: logistic regression baseline, XGBoost space-time model, rolling-origin CV harness, MLflow experiment tracking | Aug 19 – 22 |
+| 4 | Graph-enhanced model & explainability: PyTorch Geometric embeddings, driver-explainability layer, Claude narrative generation | Aug 23 – 26 |
+| 5 | App build & validation: R Shiny Claymorphism dashboard, connect model to map, usability pass with a non-STEM proxy user, finalize PR-AUC / Brier / Recall@K on holdout | Aug 27 – 29 |
+| 6 | Write-up, ethics/limitations, final QA | Aug 30 – Sep 1 |
+| — | **Buffer**: supervisor review, revisions, final submission prep | Sep 2 – 15 |
 
 ## Dissertation Title Options
 1. Forecasting Kidnapping and Banditry Risk in Nigeria: A Space-Time Graph-Boosting Approach
