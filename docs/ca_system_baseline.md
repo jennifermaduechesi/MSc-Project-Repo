@@ -75,8 +75,54 @@ It also reframes the supervisor's first correction. "Look for dataset with a mor
 verified source" is best answered not by finding a more credible source than UCDP, but
 by adding one that codes abduction without a fatality threshold. ACLED does exactly
 that, which is why `HANDOFF.md` 4.3 calls an ACLED key "the single highest-value change
-available". The ACLED connector is already written (`src/pau_risk/ingest/acled.py`); the
-model needs retraining on the wider base, not rebuilding.
+available". The model needs retraining on the wider base, not rebuilding.
+
+## 2b. Baseline measured, and the ACLED work now written
+
+The finding above was turned into a repeatable check,
+`scripts/check_northwest_coverage.py`, which prints the numbers rather than leaving
+them to be recalled. Against the warehouse as shipped:
+
+| Measure | UCDP only |
+|---|---|
+| North West share of banditry and kidnapping events | 6.2% |
+| North West LGAs with any recorded event | 41 of 186 |
+| North West LGAs at High or Severe | 0 |
+| Zamfara / Katsina / Sokoto / Kebbi events | 16 / 3 / 6 / 2 |
+
+The North East, by contrast, holds 46.6% of the corpus, 75% of its LGAs have a
+recorded event, and Borno alone carries 10 High or Severe LGAs.
+
+Four changes were made to the CA project to close this. They are described in full in
+that project's `docs/acled_north_west.md`.
+
+1. The ACLED connector was rewritten. ACLED retired the `key` plus `email` query
+   parameter scheme in favour of OAuth at `acleddata.com/oauth/token`, and the data
+   host moved to `acleddata.com/api/acled/read`. The connector as inherited would have
+   returned 401 and looked like a credential fault. Credentials are now `ACLED_EMAIL`
+   and `ACLED_PASSWORD` against a free myACLED account.
+2. ACLED events are classed on the same rule as UCDP, so the merged corpus carries one
+   definition of the target rather than two.
+   `Abduction/forced disappearance` enters the label class.
+3. Cross-source deduplication was added (`src/pau_risk/dedupe.py`), applied when
+   incidents are read rather than when they are written, so the raw layer stays
+   auditable. UCDP and ACLED both code the same lethal attacks, and `event_id` is built
+   per source, so without this one attack would count twice. The weekly label survives
+   double counting; the lagged count features and the Hawkes branching ratio do not.
+4. A verification script that answers the North West question directly, before and
+   after, and writes the answer to `data/artifacts/northwest_coverage.md`.
+
+The ACLED endpoint was not reachable from the environment this was written in, so the
+matcher was validated against a synthetic merged corpus built from the real UCDP data.
+It removed 3,404 of 3,436 planted duplicates (99.1%) and wrongly removed none of the
+3,000 planted ACLED-only non-fatal events, which is the property that matters, since
+those records are the whole reason for adding the source. `tests/test_dedupe.py` pins
+both directions of the rule and the full CA suite (74 tests) passes.
+
+What remains is hers to run: supply the myACLED credentials, ingest, then rebuild the
+panel, retrain and rescore. The shipped tier thresholds and Hawkes parameters belong to
+the narrower corpus, so the operational headline (top 20 LGAs reaching 36% of the areas
+attacked that week) has to be recomputed rather than carried over.
 
 ## 3. Architecture divergence from the revised proposal
 
@@ -116,8 +162,11 @@ week's incident list.
 1. Which architecture does the dissertation describe: the built Hawkes hybrid, the
    corrected proposal's hurdle + ST-GNN + ensemble, or the built system extended toward
    the corrections? This needs the supervisor's view before Chapter 3 is finalised.
-2. Is ACLED being added? It changes the geography of the output and resolves the
-   validity problem in section 2 above.
+2. ~~Is ACLED being added?~~ Answered: yes, and the code is written (section 2b). What
+   is still open is whether the retrained geography is reported as the headline result
+   or as a robustness check alongside the UCDP-only model. Reporting both is the
+   stronger thesis, because the gap between them is itself the finding: the choice of
+   source, not the choice of model, decides where the system says the risk is.
 3. Reuse and attribution. The CA build is group coursework (Project 8, Group 4, seven
    named contributors, deployed under a different account). The dissertation declaration
    asserts sole authorship and no prior submission. Confirm with the supervisor what may
