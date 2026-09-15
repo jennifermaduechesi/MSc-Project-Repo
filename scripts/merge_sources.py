@@ -13,12 +13,11 @@ They also disagree about the period they cover and about how much they record.
 Three decisions were taken by the student with the evidence in front of her and
 are implemented here.
 
-**Period.** The full fifteen years is retained and labelled, because it is real
-data and supports the long-run description in Chapters One and Four. Only 2021 to
-2025 is marked for modelling. The reason is coverage: 2011 to 2020 rests on the
-additional file alone and averages about 194 events a year, against roughly 1,900
-a year once both sources are present. A model trained across that boundary would
-read a tenfold change in collection effort as a tenfold change in violence.
+**Period.** The full span is retained. Modelling runs from 2014 to the last dated
+event; see the comment on MODEL_START below for why that start and that end. Only
+2011 to 2013 is held out of training, because those three years observe just 7, 16
+and 24 of the 37 states and carry no coordinates. They still feed the lagged
+features as burn-in history.
 
 **Duplicates.** A row in the additional file is treated as a duplicate when it
 shares a date and state with a main-log record and at least 60% of its title words
