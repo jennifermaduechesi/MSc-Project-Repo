@@ -200,7 +200,7 @@ def main() -> int:
     print(f"(gazetteer recovered {recovered:,})")
 
     model = output[output["in_model_period"] & output["is_target"] & output["resolved"]]
-    print(f"\nMODEL PERIOD (2021-2025) target events resolved: {len(model):,}")
+    print(f"\nmodelling window target events resolved: {len(model):,}")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     output.to_csv(args.out, index=False)

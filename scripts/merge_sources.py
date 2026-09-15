@@ -46,7 +46,27 @@ from pathlib import Path
 import pandas as pd
 
 TITLE_OVERLAP_THRESHOLD = 0.60
-MODEL_START, MODEL_END = pd.Timestamp("2021-01-01"), pd.Timestamp("2025-12-31")
+# The modelling window. It starts in 2014 and runs to the last dated event.
+#
+# Not 2011, because 2011 to 2013 is not nationally covered: those years record
+# incidents in only 7, 16 and 24 of the 37 states and carry no coordinates at all.
+# A dataset that sees seven states in a year is not reporting that the other
+# thirty were peaceful. Those three years are kept as feature history so the
+# lagged windows and the long-run rate have something to read, but they do not
+# contribute training rows.
+#
+# Not 2021 either. The rise from 2014 is genuine escalation rather than growing
+# collection effort, and the events-per-LGA figure is what shows it: affected
+# LGAs rise from 70 to 445 while intensity within them rises from 1.46 to 6.90
+# events per LGA. Had coverage simply widened, the second number would have
+# stayed flat. Discarding 2014 to 2020 would throw away real history.
+#
+# The window ends at the last dated event rather than at a calendar year end.
+# 2026 is incomplete, running to 2 August, but incomplete is not the same as
+# absent: truncating the panel at the final observed week keeps those 366 events
+# and avoids inventing empty weeks after them.
+MODEL_START = pd.Timestamp("2014-01-01")
+BURN_IN_START = pd.Timestamp("2011-07-03")
 
 STATE_ALIASES = {
     "fct": "federalcapitalterritory",
@@ -199,7 +219,10 @@ def main() -> int:
     # ----------------------------------------------------------- combine records
     kept = additional.drop(index=list(duplicates.keys()))
     merged = pd.concat([main_log, kept], ignore_index=True, sort=False)
-    merged["in_model_period"] = merged["date"].between(MODEL_START, MODEL_END)
+    model_end = merged.loc[merged["is_target"], "date"].max()
+    merged["in_model_period"] = merged["date"].between(MODEL_START, model_end)
+    # Everything before the modelling window still feeds the lagged features.
+    merged["is_burn_in"] = merged["date"] < MODEL_START
 
     for column in ("deaths_filled_from_additional", "kidnapped_filled_from_additional"):
         merged[column] = merged[column].fillna(False).astype(bool)
@@ -209,7 +232,7 @@ def main() -> int:
     print(f"  from main log                 : {int((merged['source_file']=='main').sum()):,}")
     print(f"  new from additional           : {int((merged['source_file']=='additional').sum()):,}")
     print(f"  target events (all periods)   : {int(merged['is_target'].sum()):,}")
-    print(f"  target events in model period : {int((merged['is_target'] & merged['in_model_period']).sum()):,}")
+    print(f"  target events in model window : {int((merged['is_target'] & merged['in_model_period']).sum()):,}")
     print(f"  security operations           : {int(merged['is_operation'].sum()):,}")
 
     print("\ntarget events per year:")
