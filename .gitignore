@@ -16,3 +16,11 @@ mlruns/
 # copy creating a similarity-checker false positive against the student's
 # own submission).
 dissertation/
+
+# Reference geography: the OCHA boundary files are large public downloads,
+# reproducible from data.humdata.org, so they are fetched rather than versioned.
+# The LGA crosswalk is excluded for a different reason: it carries per-LGA record
+# counts derived from the Bulwark Intelligence data, which is licensed for this
+# research but not for publication on a public repository.
+data/reference/*
+!data/reference/.gitkeep
