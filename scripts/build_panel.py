@@ -36,9 +36,24 @@ established.
                      One treats operations as a leading indicator rather than as an
                      instance of the outcome.
     calendar         Week of year as a pair of harmonics, and a linear time index.
+    coverage         How many of the two source files were recording in that week.
 
 Events before 2014 are kept as burn-in so that the lagged windows for early 2014 read
 real history rather than zeros. They contribute no rows to the panel.
+
+**A coverage discontinuity runs through the panel and is recorded as a feature.** The
+general incident log covers 1 January 2021 to 31 December 2025. The specialist file
+covers the whole span. So the modelling window crosses three regimes: one source to the
+end of 2020, two sources for 2021 to 2025, and one source again for 2026. Mean positive
+area-weeks per week are 4.7, 30.3 and 10.6 across the three, and the 2025 to 2026
+boundary is a cliff rather than a taper, falling from 45 in the last week of December to
+9 in the first week of January. The specialist file's own rate is continuous across both
+boundaries, so neither step is a change in violence.
+
+`cov_sources` marks each week with the number of files recording in it, so a model can
+condition on the regime instead of reading the step as a change in risk. The alternative
+of truncating the window was considered and rejected by the student, on the grounds that
+the 2026 weeks are real observations and should not be discarded.
 """
 
 from __future__ import annotations
@@ -194,6 +209,13 @@ def main() -> int:
     features["own_weeks_since"] = weeks_since_last(events)
     features["own_ever"] = (cumulative_events > 0).astype(np.float32)
 
+    # Coverage regime. Derived from the general log's own extent in the data rather
+    # than hard-coded, so it stays correct if the supplied files change.
+    main_log = incidents[incidents["source_file"] == "main"]
+    dual_from, dual_to = main_log["week"].min(), main_log["week"].max()
+    dual = ((all_weeks >= dual_from) & (all_weeks <= dual_to)).astype(np.float32)
+    features["cov_sources"] = np.repeat((1.0 + dual)[None, :], len(pcodes), axis=0)
+
     features["nb_degree"] = np.repeat(degree[:, None], len(all_weeks), axis=1)
     week_of_year = np.array([w.isocalendar()[1] for w in all_weeks], dtype=np.float32)
     features["cal_sin"] = np.repeat(np.sin(2 * np.pi * week_of_year / 52.0)[None, :], len(pcodes), axis=0)
@@ -249,6 +271,12 @@ def main() -> int:
     print(f"positives       : {int(panel.occurred.sum()):,} ({100 * panel.occurred.mean():.3f}%)")
     print(f"features        : {len(feature_names)}")
     print(f"areas ever hit  : {panel.loc[panel.occurred == 1, 'pcode'].nunique()} of {len(pcodes)}")
+    print("\ncoverage regimes in the modelled window:")
+    for sources, block in panel.groupby("cov_sources"):
+        weeks = block["week"].nunique()
+        rate = block.groupby("week")["occurred"].sum().mean()
+        print(f"  {int(sources)} source(s): {weeks:>3} weeks, {rate:>5.1f} positive area-weeks per week, "
+              f"{block['week'].min().date()} to {block['week'].max().date()}")
     print(f"max in a week   : {int(panel.event_count.max())}")
     counts = panel.loc[panel.occurred == 1, "event_count"]
     print(f"single-event    : {100 * (counts == 1).mean():.1f}% of positive weeks")
