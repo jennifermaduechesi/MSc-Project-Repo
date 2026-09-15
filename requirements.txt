@@ -4,3 +4,14 @@ pandas
 SQLAlchemy
 psycopg2-binary
 kafka-python
+numpy
+pyarrow
+shapely
+openpyxl
+scikit-learn
+xgboost
+torch
+torch-geometric
+torch-geometric-temporal
+matplotlib
+python-docx
