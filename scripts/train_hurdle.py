@@ -106,6 +106,41 @@ def evaluate(frame: pd.DataFrame) -> dict:
     return result
 
 
+def calibrate_probabilities(base, x, y, area_of_row, n_splits=3):
+    """Learn an isotonic calibration map using folds split by area, not by time.
+
+    `CalibratedClassifierCV(..., cv=3)` cannot be used directly here. It runs KFold
+    without shuffling, so its folds follow whatever order the rows arrive in. With
+    rows ordered by area each fold spans the whole period and calibration is
+    harmless; with rows ordered by week each fold becomes a contiguous time block,
+    every internal model trains on two thirds of the period and extrapolates over
+    the rest, and average precision on fold four fell from 0.262 to 0.183 for that
+    reason alone. Neither script chose that behaviour. Both inherited it from row
+    order, which is why it is replaced with something explicit.
+
+    Splitting by area was chosen over holding out the most recent weeks. A temporal
+    holdout is the intuitive choice, but it costs the base model the most recent and
+    most informative fifth of its training data, and measured across the five folds
+    it reduced average precision from 0.188 to 0.160 for the linear model and from
+    0.173 to 0.134 for the boosted one. Splitting by area keeps every sub-model
+    trained on the full time range while still calibrating on rows it did not fit.
+    Nothing here uses information from after the training cutoff, so the split is a
+    choice about variance rather than about leakage.
+    """
+    codes = pd.factorize(area_of_row)[0]
+    indices = np.arange(len(codes))
+    splits = []
+    for fold in range(n_splits):
+        held = codes % n_splits == fold
+        if held.sum() < 50 or (~held).sum() < 50:
+            base.fit(x, y)
+            return base
+        splits.append((indices[~held], indices[held]))
+    model = CalibratedClassifierCV(base, method="isotonic", cv=splits)
+    model.fit(x, y)
+    return model
+
+
 def fit_stage_one(train: pd.DataFrame, features: list[str], kind: str):
     x, y = train[features].to_numpy(np.float32), train["occurred"].to_numpy()
     if kind == "logistic":
@@ -120,9 +155,7 @@ def fit_stage_one(train: pd.DataFrame, features: list[str], kind: str):
             StandardScaler(),
             LogisticRegression(max_iter=2000, class_weight="balanced", C=1.0),
         )
-        model = CalibratedClassifierCV(base, method="isotonic", cv=3)
-        model.fit(x, y)
-        return model
+        return calibrate_probabilities(base, x, y, train["pcode"].to_numpy())
     if kind == "gradient_boosting":
         # No class weighting. Reweighting the positive class by the observed ratio of
         # roughly fifty to one was tried first and made this model materially worse,
@@ -146,9 +179,7 @@ def fit_stage_one(train: pd.DataFrame, features: list[str], kind: str):
             subsample=0.8, colsample_bytree=0.8,
             eval_metric="aucpr", tree_method="hist", n_jobs=4, random_state=7,
         )
-        model = CalibratedClassifierCV(base, method="isotonic", cv=3)
-        model.fit(x, y)
-        return model
+        return calibrate_probabilities(base, x, y, train["pcode"].to_numpy())
     raise ValueError(kind)
 
 
