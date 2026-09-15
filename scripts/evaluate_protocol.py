@@ -59,6 +59,7 @@ TOP_K = (10, 20, 50)
 HORIZONS = (1, 2, 4)          # weeks, which is 7, 14 and 28 days
 DELAYS = (0, 1, 2)            # weeks withheld on top of the standard one-week lag
 DUAL_MATCH_DAYS = (0, 1)      # tolerance for linking a record across the two files
+MIN_LINKED = 5                # linked records a state needs before its own estimate is used
 
 
 # --------------------------------------------------------- features at a chosen delay
@@ -181,7 +182,7 @@ def evaluate(frame: pd.DataFrame, column: str, n_areas: int) -> dict:
     return out
 
 
-def calibrate(base, x, y, area_of_row, n_splits=3):
+def calibrate(base, x, y, area_of_row, n_splits=3, sample_weight=None):
     """Isotonic calibration on folds split by area. See section 3.6 for why."""
     codes = pd.factorize(area_of_row)[0]
     idx = np.arange(len(codes))
@@ -189,11 +190,12 @@ def calibrate(base, x, y, area_of_row, n_splits=3):
     for fold in range(n_splits):
         held = codes % n_splits == fold
         if held.sum() < 50 or (~held).sum() < 50:
-            base.fit(x, y)
+            base.fit(x, y, **({} if sample_weight is None
+                              else {"logisticregression__sample_weight": sample_weight}))
             return base
         splits.append((idx[~held], idx[held]))
     model = CalibratedClassifierCV(base, method="isotonic", cv=splits)
-    model.fit(x, y)
+    model.fit(x, y, **({} if sample_weight is None else {"sample_weight": sample_weight}))
     return model
 
 
@@ -214,21 +216,11 @@ def run_folds(frame: pd.DataFrame, feature_names: list[str], weeks: np.ndarray,
         test = frame[frame.week.isin(weeks[test_start:test_end])].copy()
         x = train[feature_names].to_numpy(np.float32)
         y = train["y"].to_numpy()
+        areas = train["pcode"].to_numpy()
         base = make_pipeline(StandardScaler(),
                              LogisticRegression(max_iter=2000, class_weight="balanced"))
-        if sample_weight is not None:
-            # Weighting is applied by resampling indices rather than by sample_weight,
-            # because the calibration wrapper refits the estimator internally and does
-            # not pass a weight vector through to it.
-            w = sample_weight[train.index.to_numpy()]
-            rng = np.random.default_rng(7 + fold)
-            probability = w / w.sum()
-            draw = rng.choice(len(w), size=len(w), replace=True, p=probability)
-            x, y = x[draw], y[draw]
-            areas = train["pcode"].to_numpy()[draw]
-        else:
-            areas = train["pcode"].to_numpy()
-        model = calibrate(base, x, y, areas)
+        weight = None if sample_weight is None else sample_weight[train.index.to_numpy()]
+        model = calibrate(base, x, y, areas, sample_weight=weight)
         test["score"] = model.predict_proba(test[feature_names].to_numpy(np.float32))[:, 1]
         metrics = evaluate(test, "score", n_areas)
         metrics["fold"] = fold
@@ -283,10 +275,15 @@ def detection_by_state(incidents: pd.DataFrame, pcode_to_state: dict,
         n1, n2 = len(m_cells), len(a_cells)
         chapman = ((n1 + 1) * (n2 + 1) / (matched + 1)) - 1
         observed = len(m_cells | a_cells)
+        # A detection rate above one is arithmetically impossible and means the
+        # estimator has broken down, which happens in states with almost no linked
+        # records. Yobe, for instance, contributes one record to the specialist file
+        # and it happens to match, which drives the estimate to exactly 1.
+        detection = min(observed / chapman, 1.0) if chapman > 0 else np.nan
         rows.append({"state": state, "n_main": n1, "n_additional": n2,
                      "matched": matched, "observed": observed,
-                     "estimated_total": chapman,
-                     "detection": observed / chapman if chapman > 0 else np.nan})
+                     "estimated_total": chapman, "detection": detection,
+                     "reliable": matched >= MIN_LINKED})
     return pd.DataFrame(rows).sort_values("observed", ascending=False)
 
 
@@ -333,7 +330,11 @@ def main() -> int:
     parser.add_argument("--adjacency", default="data/reference/lga_adjacency.csv")
     parser.add_argument("--boundaries", default="data/reference/nga_admin_boundaries.xlsx")
     parser.add_argument("--out", default="data/processed/protocol_results.json")
+    parser.add_argument("--experiments", default="abc",
+                        help="which experiments to run, any of a (horizon), "
+                             "b (delay), c (under-reporting)")
     args = parser.parse_args()
+    wanted = set(args.experiments.lower())
 
     incidents = load_incidents(Path(args.incidents))
     reference = pd.read_excel(args.boundaries, sheet_name="nga_admin2")
@@ -374,69 +375,91 @@ def main() -> int:
     check_against_panel(panel, base_frame, feature_names)
 
     # ------------------------------------------------------------- A. horizon (C7)
-    print("\nA. horizon comparison, 7 / 14 / 28 days")
-    horizon_rows = {}
-    for h in HORIZONS:
-        labels = forward_label(events, h)
-        frame = assemble(pcodes, model_weeks, features0, labels, keep, names)
-        # The last h-1 modelled weeks have no complete forward window. Filling them
-        # with zero would teach the model that the end of the record was peaceful.
-        if h > 1:
-            frame = frame[frame.week <= model_weeks[-(h - 1) - 1]]
-            dropped = len(pcodes) * len(model_weeks) - len(frame)
-            assert dropped == len(pcodes) * (h - 1), (
-                f"truncation dropped {dropped}, expected {len(pcodes) * (h - 1)}")
-            print(f"  horizon {h}w: dropped {dropped:,} rows "
-                  f"({len(pcodes)} areas x {h - 1} week(s))")
-        weeks = np.sort(frame["week"].unique())
-        rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))
-        horizon_rows[f"{h * 7}d"] = rows
-        show(f"{h * 7} days ({h}w)", rows)
-    results["horizon"] = horizon_rows
+    if "a" in wanted:
+        print("\nA. horizon comparison, 7 / 14 / 28 days")
+        horizon_rows = {}
+        for h in HORIZONS:
+            labels = forward_label(events, h)
+            frame = assemble(pcodes, model_weeks, features0, labels, keep, names)
+            # The last h-1 modelled weeks have no complete forward window. Filling them
+            # with zero would teach the model that the end of the record was peaceful.
+            if h > 1:
+                frame = frame[frame.week <= model_weeks[-(h - 1) - 1]]
+                dropped = len(pcodes) * len(model_weeks) - len(frame)
+                assert dropped == len(pcodes) * (h - 1), (
+                    f"truncation dropped {dropped}, expected {len(pcodes) * (h - 1)}")
+                print(f"  horizon {h}w: dropped {dropped:,} rows "
+                      f"({len(pcodes)} areas x {h - 1} week(s))")
+            weeks = np.sort(frame["week"].unique())
+            rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))
+            horizon_rows[f"{h * 7}d"] = rows
+            show(f"{h * 7} days ({h}w)", rows)
+        results["horizon"] = horizon_rows
 
     # --------------------------------------------------------------- B. delay (C2)
-    print("\nB. reporting delay, 0 / 1 / 2 weeks withheld")
-    delay_rows = {}
-    for d in DELAYS:
-        features = features0 if d == 0 else build_features(
-            events, ops, deaths, taken, adjacency, degree, all_weeks,
-            dual_from, dual_to, delay=d)
-        frame = assemble(pcodes, model_weeks, features, labels1, keep, names)
+    if "b" in wanted:
+        print("\nB. reporting delay, 0 / 1 / 2 weeks withheld")
+        delay_rows = {}
+        for d in DELAYS:
+            features = features0 if d == 0 else build_features(
+                events, ops, deaths, taken, adjacency, degree, all_weeks,
+                dual_from, dual_to, delay=d)
+            frame = assemble(pcodes, model_weeks, features, labels1, keep, names)
+            weeks = np.sort(frame["week"].unique())
+            rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))
+            delay_rows[f"{d}w"] = rows
+            show(f"delay {d} week(s)", rows)
+        results["delay"] = delay_rows
+
+    # ------------------------------------------------------- C. under-reporting (C4)
+    if "c" in wanted:
+        print("\nC. under-reporting, detection estimated from the two supplied files")
+        detection_tables = {}
+        for tolerance in DUAL_MATCH_DAYS:
+            table = detection_by_state(incidents, pcode_to_state, tolerance)
+            detection_tables[f"pm{tolerance}d"] = table.to_dict("records")
+            finite = table["detection"].dropna()
+            print(f"  match tolerance +/-{tolerance} day(s): {len(table)} states, "
+                  f"detection median {finite.median():.3f}, "
+                  f"range {finite.min():.3f} to {finite.max():.3f}, "
+                  f"{int((table['matched'] == 0).sum())} state(s) with no linked record")
+        results["detection"] = detection_tables
+
+        table = detection_by_state(incidents, pcode_to_state, 0)
+
+        # A state's own estimate is used only where enough records were linked for it
+        # to mean anything. Everywhere else the pooled national figure stands in,
+        # computed with the same estimator over the whole corpus rather than averaged
+        # across states, so that small states do not weigh the same as Zamfara.
+        pooled = detection_by_state(incidents, {p: "national" for p in pcode_to_state},
+                                    0)["detection"].iloc[0]
+        reliable = table[table["reliable"]]
+        detection = reliable.set_index("state")["detection"]
+        print(f"  pooled national detection {pooled:.3f}; "
+              f"{len(reliable)} of {len(table)} states carry their own estimate "
+              f"({100 * reliable['observed'].sum() / table['observed'].sum():.1f}% of records)")
+
+        frame = assemble(pcodes, model_weeks, features0, labels1, keep, names)
+        frame["state"] = frame["pcode"].map(pcode_to_state)
+        frame = frame.reset_index(drop=True)
+        estimate = frame["state"].map(detection).fillna(pooled).to_numpy(np.float64)
+        weights = 1.0 / estimate
+        if not np.isfinite(weights).all():
+            raise SystemExit("under-reporting weights are not all finite")
+        weights = weights / weights.mean()      # mean one, so only the spread matters
         weeks = np.sort(frame["week"].unique())
-        rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))
-        delay_rows[f"{d}w"] = rows
-        show(f"delay {d} week(s)", rows)
-    results["delay"] = delay_rows
-
-    # ------------------------------------------------- C. under-reporting (C4)
-    print("\nC. under-reporting, detection estimated from the two supplied files")
-    detection_tables = {}
-    for tolerance in DUAL_MATCH_DAYS:
-        table = detection_by_state(incidents, pcode_to_state, tolerance)
-        detection_tables[f"pm{tolerance}d"] = table.to_dict("records")
-        finite = table["detection"].dropna()
-        print(f"  match tolerance +/-{tolerance} day(s): {len(table)} states, "
-              f"detection median {finite.median():.3f}, "
-              f"range {finite.min():.3f} to {finite.max():.3f}, "
-              f"{int((table['matched'] == 0).sum())} state(s) with no linked record")
-    results["detection"] = detection_tables
-
-    table = detection_by_state(incidents, pcode_to_state, 0)
-    detection = table.set_index("state")["detection"]
-    median = float(detection.median())
-    frame = assemble(pcodes, model_weeks, features0, labels1, keep, names)
-    frame["state"] = frame["pcode"].map(pcode_to_state)
-    frame = frame.reset_index(drop=True)
-    weights = frame["state"].map(detection).fillna(median).rpow(-1.0).to_numpy()
-    weights = np.clip(weights, 0.0, np.percentile(weights, 99))
-    weeks = np.sort(frame["week"].unique())
-    plain = run_folds(frame, feature_names, weeks, len(pcodes))
-    reweighted = run_folds(frame, feature_names, weeks, len(pcodes), sample_weight=weights)
-    show("unweighted", plain)
-    show("inverse-detection", reweighted)
-    results["under_reporting"] = {"unweighted": plain, "reweighted": reweighted,
-                                  "weight_min": float(weights.min()),
-                                  "weight_max": float(weights.max())}
+        print(f"  weights run from {weights.min():.2f} to {weights.max():.2f} "
+              f"about a mean of {weights.mean():.2f}")
+        plain = run_folds(frame, feature_names, weeks, len(pcodes))
+        reweighted = run_folds(frame, feature_names, weeks, len(pcodes),
+                               sample_weight=weights)
+        show("unweighted", plain)
+        show("inverse-detection", reweighted)
+        results["under_reporting"] = {
+            "unweighted": plain, "reweighted": reweighted,
+            "pooled_detection": float(pooled),
+            "states_with_own_estimate": int(len(reliable)),
+            "weight_min": float(weights.min()), "weight_max": float(weights.max())}
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(results, indent=1, default=str))
