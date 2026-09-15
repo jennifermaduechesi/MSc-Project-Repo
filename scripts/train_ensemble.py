@@ -71,6 +71,8 @@ TOP_K = (10, 20, 50)
 NOT_FEATURES = {"pcode", "week", "lga", "state", "event_count", "occurred"}
 GNN_HIDDEN, GNN_K, GNN_EPOCHS, GNN_LR = 32, 2, 10, 0.01
 EPS = 1e-6
+PROBABILISTIC = {"logistic", "random_forest", "gradient_boosting", "stgnn",
+                 "ensemble", "ensemble_unweighted", "long_run"}
 
 
 # ------------------------------------------------------------------------ measures
@@ -94,9 +96,21 @@ def evaluate(frame: pd.DataFrame, column: str) -> dict:
         "roc_auc": float(roc_auc_score(y, s)),
         "ap_lift_over_base": float(average_precision_score(y, s)) / base if base else float("nan"),
     }
-    # a rank-only baseline has no probability, so Brier is meaningless for it
-    if s.min() >= 0.0 and s.max() <= 1.0:
-        out["brier"] = float(brier_score_loss(y, s))
+    # Brier is reported only for scores that are meant to be read as a probability of
+    # occurrence. The four learners and the stack qualify by construction. `long_run`
+    # qualifies by argument rather than by construction: it is a mean event count per
+    # week, not a probability, but 81.3 per cent of positive area-weeks hold exactly
+    # one event, so it approximates the probability of at least one closely enough to
+    # be worth scoring. `recency` is a raw four-week count reaching 27 and does not
+    # qualify at all.
+    #
+    # This is stated as a named set rather than tested as a range. The range test
+    # returns the same answer on this panel, but only because events are scarce
+    # enough to keep `long_run` below 0.25, which is a property of the data and not a
+    # decision anyone made. The calibration fault recorded in `calibrate_probabilities`
+    # came from exactly that kind of accidental dependence.
+    if column in PROBABILISTIC:
+        out["brier"] = float(brier_score_loss(y, np.clip(s, 0.0, 1.0)))
     for k in TOP_K:
         r = recall_at_k(frame, column, k)
         out[f"recall_at_{k}"] = r
@@ -235,8 +249,10 @@ def main() -> int:
 
     BASE = ["logistic", "random_forest", "gradient_boosting", "stgnn"]
     results: dict[str, list[dict]] = {name: [] for name in
-                                      BASE + ["ensemble", "recency", "long_run"]}
+                                      BASE + ["ensemble", "ensemble_unweighted",
+                                              "recency", "long_run"]}
     weights_log = []
+    predictions = []
 
     bounds, end = [], len(weeks)
     for _ in range(args.folds):
@@ -273,18 +289,33 @@ def main() -> int:
             print(f"    {name:<18} AP {results[name][-1]['average_precision']:.4f} | "
                   f"R@20 {results[name][-1]['recall_at_20']:.3f}")
 
-        meta = LogisticRegression(max_iter=2000, class_weight="balanced")
-        meta.fit(np.column_stack([logit(meta_x[n]) for n in BASE]),
-                 inner_val["occurred"].to_numpy())
-        test["ensemble"] = meta.predict_proba(
-            np.column_stack([logit(test_x[n]) for n in BASE]))[:, 1]
-        results["ensemble"].append({**evaluate(test, "ensemble"), "fold": fold})
-        weights_log.append({"fold": fold,
-                            **{n: float(w) for n, w in zip(BASE, meta.coef_[0])}})
-        print(f"    {'ensemble':<18} AP {results['ensemble'][-1]['average_precision']:.4f} | "
-              f"R@20 {results['ensemble'][-1]['recall_at_20']:.3f}")
-        print(f"    meta weights: " +
-              ", ".join(f"{n} {w:+.2f}" for n, w in zip(BASE, meta.coef_[0])))
+        # Two meta-learners are fitted on the same inputs and differ only in whether
+        # the loss is reweighted toward the positive class. This repeats at the stack
+        # level the comparison stage one makes in `train_hurdle.py`, and for the same
+        # reason: reweighting moves the predicted values away from the base rate by
+        # construction, so a weighted meta-learner can rank well and still return a
+        # number that cannot be read as a probability. The first run of this script
+        # fitted only the weighted form and returned a mean Brier score of 0.194
+        # against 0.032 for the calibrated logistic model, which would have left the
+        # stack unable to supply the probability the interface reports.
+        meta_features = np.column_stack([logit(meta_x[n]) for n in BASE])
+        test_features = np.column_stack([logit(test_x[n]) for n in BASE])
+        inner_y = inner_val["occurred"].to_numpy()
+        for column, weighting in (("ensemble", "balanced"),
+                                  ("ensemble_unweighted", None)):
+            meta = LogisticRegression(max_iter=2000, class_weight=weighting)
+            meta.fit(meta_features, inner_y)
+            test[column] = meta.predict_proba(test_features)[:, 1]
+            results[column].append({**evaluate(test, column), "fold": fold})
+            print(f"    {column:<18} AP {results[column][-1]['average_precision']:.4f} | "
+                  f"R@20 {results[column][-1]['recall_at_20']:.3f} | "
+                  f"Brier {results[column][-1]['brier']:.4f}")
+            weights_log.append({"fold": fold, "meta": column,
+                                "intercept": float(meta.intercept_[0]),
+                                **{n: float(w) for n, w in zip(BASE, meta.coef_[0])}})
+            if column == "ensemble":
+                print("    meta weights: " +
+                      ", ".join(f"{n} {w:+.2f}" for n, w in zip(BASE, meta.coef_[0])))
 
         test["recency"] = test["own_events_4w"] + 0.01 * test["own_rate_longrun"]
         test["long_run"] = test["own_rate_longrun"]
@@ -293,15 +324,25 @@ def main() -> int:
             print(f"    {name:<18} AP {results[name][-1]['average_precision']:.4f} | "
                   f"R@20 {results[name][-1]['recall_at_20']:.3f}")
 
-    print("\n" + "=" * 72)
-    print(f"{'model':<20}{'mean AP':>10}{'mean R@20':>12}{'mean lift@20':>14}")
-    print("-" * 72)
+        # Keep the scores so the meta stage can be re-examined without refitting the
+        # base learners, which is the expensive part of this script.
+        keep = ["pcode", "week", "occurred", "ensemble", "ensemble_unweighted",
+                "recency", "long_run"] + BASE
+        block = test[keep].copy()
+        block["fold"] = fold
+        predictions.append(block)
+
+    print("\n" + "=" * 78)
+    print(f"{'model':<22}{'mean AP':>10}{'mean R@20':>12}{'mean lift@20':>14}{'mean Brier':>14}")
+    print("-" * 78)
     order = sorted(results, key=lambda n: -np.mean([r["average_precision"] for r in results[n]]))
     for name in order:
         rows = results[name]
-        print(f"{name:<20}{np.mean([r['average_precision'] for r in rows]):>10.4f}"
+        briers = [r["brier"] for r in rows if "brier" in r]
+        print(f"{name:<22}{np.mean([r['average_precision'] for r in rows]):>10.4f}"
               f"{np.mean([r['recall_at_20'] for r in rows]):>12.3f}"
-              f"{np.mean([r['lift_at_20'] for r in rows]):>14.1f}")
+              f"{np.mean([r['lift_at_20'] for r in rows]):>14.1f}"
+              f"{(f'{np.mean(briers):.4f}' if briers else 'n/a'):>14}")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(
@@ -309,6 +350,10 @@ def main() -> int:
          "config": {"base": BASE, "test_weeks": TEST_WEEKS, "inner_weeks": INNER_WEEKS,
                     "gnn": {"hidden": GNN_HIDDEN, "K": GNN_K, "epochs": GNN_EPOCHS}}}, indent=1))
     print(f"\nwritten to {args.out}")
+    if predictions:
+        scores_path = Path(args.out).with_name("ensemble_test_scores.parquet")
+        pd.concat(predictions, ignore_index=True).to_parquet(scores_path, index=False)
+        print(f"test-period scores written to {scores_path}")
     return 0
 
 
