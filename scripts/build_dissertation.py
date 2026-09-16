@@ -1,0 +1,335 @@
+"""Assemble the complete dissertation into the Pan-Atlantic MSc template.
+
+The template is used as the base document rather than imitated, so the styles, the table
+style and the section setup are the university's own. Its placeholder body is removed and
+the real content written back through the same styles: Heading 1 for chapter titles,
+Heading 2 and 3 for sections, Section Title for front matter, Table/Figure for table notes
+and figure captions, and APA Report for tables.
+
+Front matter is numbered in lower-case roman and the body in arabic restarting at one,
+which needs raw XML because python-docx exposes neither page-number format nor fields.
+"""
+from __future__ import annotations
+import re
+import sys
+from pathlib import Path
+
+from docx import Document
+from docx.enum.section import WD_SECTION
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt
+
+D = Path("dissertation")
+TEMPLATE = D / "PAU_TEMPLATE.docx"
+OUT = D / "Maduechesi_25120133019_MSc_Data_Science_Project.docx"
+
+STUDENT = "Maduechesi Chidiebere Jennifer"
+MATRIC = "25120133019"
+DEPT = "Computer and Information Sciences Department"
+SCHOOL = "School of Science and Technology"
+UNI = "Pan-Atlantic University"
+DATE = "September 2026"
+SUPERVISORS = [("Mr Solomon Alile", "Supervisor 1"), ("Dr Adubi", "Supervisor 2")]
+
+CHAPTERS = [
+    ("Chapter One: Introduction", "chapter1_introduction_v2.md"),
+    ("Chapter Two: Literature Review", "chapter2_literature_review.md"),
+    ("Chapter Three: Methodology", "chapter3_methodology.md"),
+    ("Chapter Four: Results Discussion", "chapter4_results.md"),
+    ("Chapter Five: Summary, Conclusions and Recommendations", "chapter5_conclusions.md"),
+]
+FIGURE_WIDTH = Inches(5.9)
+
+
+# --------------------------------------------------------------------------- xml helpers
+def field(paragraph, instr: str) -> None:
+    """Insert a Word field, which python-docx has no API for."""
+    run = paragraph.add_run()
+    for kind, text in (("begin", None), ("instrText", instr), ("end", None)):
+        el = OxmlElement(f"w:fld{kind.capitalize()}" if kind != "instrText" else "w:instrText")
+        if kind == "instrText":
+            el.set(qn("xml:space"), "preserve")
+            el.text = text
+        else:
+            el = OxmlElement("w:fldChar")
+            el.set(qn("w:fldCharType"), kind)
+        run._r.append(el)
+
+
+def page_numbering(section, fmt: str, start: int | None, title_page: bool) -> None:
+    """Set the page-number format on the section's existing pgNumType.
+
+    Appending a second one leaves two in the same sectPr, and appending it after
+    <w:titlePg/> also puts it out of schema order, so Word ignores it and the front
+    matter comes out in arabic like the body.
+    """
+    sectPr = section._sectPr
+    pgnum = sectPr.find(qn("w:pgNumType"))
+    if pgnum is None:
+        pgnum = OxmlElement("w:pgNumType")
+        anchor = sectPr.find(qn("w:titlePg")) or sectPr.find(qn("w:cols"))
+        (sectPr.insert(list(sectPr).index(anchor), pgnum) if anchor is not None
+         else sectPr.append(pgnum))
+    pgnum.set(qn("w:fmt"), fmt)
+    if start is not None:
+        pgnum.set(qn("w:start"), str(start))
+    # titlePg suppresses the number on the first page of the section, which is wanted on
+    # the title page and not on the first page of the body.
+    existing = sectPr.find(qn("w:titlePg"))
+    if title_page and existing is None:
+        sectPr.append(OxmlElement("w:titlePg"))
+    elif not title_page and existing is not None:
+        sectPr.remove(existing)
+
+
+def footer_page_number(section) -> None:
+    section.footer.is_linked_to_previous = False
+    p = section.footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    field(p, "PAGE")
+
+
+def runs_with_markup(paragraph, text: str) -> None:
+    """Render **bold** and *italic* spans, leaving everything else plain."""
+    for part in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
+        if not part:
+            continue
+        if part.startswith("**") and part.endswith("**"):
+            paragraph.add_run(part[2:-2]).bold = True
+        elif part.startswith("*") and part.endswith("*"):
+            paragraph.add_run(part[1:-1]).italic = True
+        else:
+            paragraph.add_run(part)
+
+
+def para(doc, text: str = "", style: str | None = None, align=None, indent_first=None):
+    p = doc.add_paragraph(style=style)
+    if align is not None:
+        p.alignment = align
+    if indent_first is not None:
+        p.paragraph_format.first_line_indent = indent_first
+    if text:
+        runs_with_markup(p, text)
+    return p
+
+
+# ------------------------------------------------------------------------------- tables
+def add_table(doc, rows: list[list[str]]) -> None:
+    t = doc.add_table(rows=len(rows), cols=len(rows[0]))
+    try:
+        t.style = doc.styles["APA Report"]
+    except KeyError:
+        t.style = doc.styles["Table Grid"]
+    for r, cells in enumerate(rows):
+        for c, value in enumerate(cells):
+            cell = t.cell(r, c)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after = Pt(2)
+            pf = p.paragraph_format._element.get_or_add_pPr()
+            spacing = OxmlElement("w:spacing")
+            spacing.set(qn("w:line"), "240")
+            spacing.set(qn("w:lineRule"), "auto")
+            pf.append(spacing)
+            runs_with_markup(p, value)
+            for run in p.runs:
+                run.font.size = Pt(10)
+                if r == 0:
+                    run.bold = True
+
+
+# ------------------------------------------------------------------------- front matter
+def front_matter(doc, fm: dict) -> None:
+    def centred(text, style="Title 2", blank_after=0):
+        para(doc, text, style=style, align=WD_ALIGN_PARAGRAPH.CENTER)
+        for _ in range(blank_after):
+            para(doc)
+
+    for second_page in (False, True):
+        para(doc, fm["title"], style="Title", align=WD_ALIGN_PARAGRAPH.CENTER)
+        para(doc); para(doc)
+        centred("By", blank_after=1)
+        centred(STUDENT)
+        centred(MATRIC, blank_after=2)
+        if second_page:
+            centred(f"A project submitted to the {SCHOOL}, {UNI}")
+            centred("in partial fulfillment of the requirements for the award of the degree of")
+            centred("Master of Science (Data Science)", blank_after=2)
+        else:
+            centred(DEPT)
+            centred(SCHOOL)
+            centred(UNI, blank_after=2)
+        centred(DATE)
+        doc.add_page_break()
+
+    para(doc, "ABSTRACT", style="Section Title")
+    para(doc, fm["abstract"], indent_first=Inches(0.5))
+    para(doc)
+    para(doc, fm["keywords"], indent_first=Pt(0))
+    doc.add_page_break()
+
+    for heading, key in (("ACKNOWLEDGEMENTS", "acknowledgements"), ("DEDICATION", "dedication")):
+        para(doc, heading, style="Section Title")
+        for block in fm[key].split("\n\n"):
+            para(doc, block.strip(), indent_first=Inches(0.5))
+        doc.add_page_break()
+
+    para(doc, "STUDENT'S DECLARATION", style="Section Title")
+    para(doc, fm["declaration"], indent_first=Inches(0.5))
+    for _ in range(3):
+        para(doc)
+    for line in ("__________________________", STUDENT, MATRIC):
+        para(doc, line, align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
+    para(doc)
+    para(doc, "Date: ______________", align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
+    doc.add_page_break()
+
+    para(doc, "CERTIFICATION", style="Section Title")
+    para(doc, fm["certification"], indent_first=Inches(0.5))
+    for name, role in SUPERVISORS:
+        for _ in range(2):
+            para(doc)
+        for line in ("________________________________", f"{role}: {name}", SCHOOL, UNI,
+                     "Lagos, Nigeria"):
+            para(doc, line, align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
+    para(doc)
+    para(doc, "Date: ______________", align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
+    doc.add_page_break()
+
+    for heading, instr in (("TABLE OF CONTENTS", r'TOC \o "1-3" \h \z \u'),
+                           ("LIST OF TABLES", r'TOC \h \z \c "Table"'),
+                           ("LIST OF FIGURES", r'TOC \h \z \c "Figure"')):
+        para(doc, heading, style="Section Title")
+        p = para(doc, indent_first=Pt(0))
+        field(p, instr)
+        para(doc, "[Right-click and choose Update Field in Word to populate this listing.]",
+             indent_first=Pt(0))
+        doc.add_page_break()
+
+
+# ------------------------------------------------------------------------------ chapters
+TABLE_NUM = re.compile(r"^Table (\d+)$")
+FIGURE_IMG = re.compile(r"^!\[[^\]]*\]\(([^)]+)\)$")
+
+
+def add_markdown(doc, path: Path, heading_text: str) -> None:
+    lines = path.read_text(encoding="utf-8").split("\n")
+    para(doc, heading_text, style="Heading 1")
+    buffer: list[list[str]] = []
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        if s.startswith("|"):
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            if not all(set(c) <= set("-: ") for c in cells):
+                buffer.append(cells)
+            i += 1
+            continue
+        if buffer:
+            add_table(doc, buffer)
+            buffer = []
+        if not s:
+            i += 1
+            continue
+        if s.startswith("# "):
+            i += 1
+            continue
+        if s.startswith("### "):
+            para(doc, s[4:], style="Heading 3")
+        elif s.startswith("## "):
+            para(doc, s[3:], style="Heading 2")
+        elif TABLE_NUM.match(s):
+            para(doc, s, style="No Spacing", indent_first=Pt(0))
+        elif FIGURE_IMG.match(s):
+            target = (path.parent / FIGURE_IMG.match(s).group(1)).resolve()
+            p = para(doc, style="Table/Figure", align=WD_ALIGN_PARAGRAPH.CENTER,
+                     indent_first=Pt(0))
+            p.add_run().add_picture(str(target), width=FIGURE_WIDTH)
+        elif s.startswith("*Note*") or s.startswith("*Figure "):
+            para(doc, s, style="Table/Figure", indent_first=Pt(0))
+        elif s.startswith("*") and s.endswith("*") and s.count("*") == 2:
+            para(doc, s, style="Table/Figure", indent_first=Pt(0))
+        else:
+            para(doc, s, indent_first=Inches(0.5))
+        i += 1
+    if buffer:
+        add_table(doc, buffer)
+
+
+def references(doc) -> None:
+    para(doc, "References", style="Heading 1")
+    text = (D / "references_consolidated.md").read_text(encoding="utf-8")
+    start = re.compile(r"^(?:[^\Wa-z\d_]|(?:d[aeiou]|van|von|del|della|dos|la|le|ten|ter)\s)"
+                       r"(?P<a>[^(]{2,220}?)\s*\((?:\d{4}[a-z]?|n\.d\.)\)")
+    for line in text.split("\n"):
+        s = " ".join(line.split())
+        if not s or s.startswith("#"):
+            continue
+        m = start.match(s)
+        entry = bool(m) and (re.search(r",\s*[A-Z]\.", m.group("a"))
+                             or m.group("a").rstrip().endswith("."))
+        p = para(doc, s, indent_first=Pt(0))
+        if entry:
+            p.paragraph_format.left_indent = Inches(0.5)
+            p.paragraph_format.first_line_indent = Inches(-0.5)
+
+
+def appendices(doc) -> None:
+    para(doc, "Appendices", style="Heading 1")
+    para(doc, "Appendix A: Data and Modelling Pipeline",
+         style="Heading 2 for Appendix" if "Heading 2 for Appendix"
+         in [s.name for s in doc.styles] else "Heading 2")
+    para(doc, "The flowchart below traces the study end to end, from the two supplied "
+              "incident files to the deployed interface, with the record counts surviving "
+              "each stage. The verification box marks the checking scripts described in "
+              "Chapter Three, which re-derive every numeric claim in Chapters Three to "
+              "Five from the stored artefacts.", indent_first=Inches(0.5))
+    p = para(doc, style="Table/Figure", align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
+    p.add_run().add_picture(str((D / "figure8_pipeline.png").resolve()), width=Inches(5.4))
+    para(doc, "*Figure 8*. The data and modelling pipeline.", style="Table/Figure",
+         indent_first=Pt(0))
+
+
+# ---------------------------------------------------------------------------------- main
+def parse_front_matter() -> dict:
+    text = (D / "front_matter.md").read_text(encoding="utf-8")
+    parts = re.split(r"@([A-Z]+)@", text)[1:]
+    fm = {parts[i].lower(): parts[i + 1].strip() for i in range(0, len(parts), 2)}
+    return fm
+
+
+def main() -> None:
+    doc = Document(str(TEMPLATE))
+    body = doc.element.body
+    for child in list(body):
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+
+    fm = parse_front_matter()
+    front_matter(doc, fm)
+
+    doc.add_section(WD_SECTION.NEW_PAGE)
+    for heading, filename in CHAPTERS:
+        add_markdown(doc, D / filename, heading)
+    references(doc)
+    appendices(doc)
+
+    front, main_section = doc.sections[0], doc.sections[-1]
+    page_numbering(front, "lowerRoman", 1, title_page=True)
+    page_numbering(main_section, "decimal", 1, title_page=False)
+    footer_page_number(front)
+    footer_page_number(main_section)
+
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(OUT)
+    print(f"wrote {OUT}")
+    print(f"  paragraphs {len(doc.paragraphs)}, tables {len(doc.tables)}, "
+          f"figures {len(doc.inline_shapes)}, sections {len(doc.sections)}")
+
+
+if __name__ == "__main__":
+    main()

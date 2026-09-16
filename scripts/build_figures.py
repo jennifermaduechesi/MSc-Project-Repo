@@ -151,7 +151,7 @@ def figure_four() -> None:
     plt.close(fig)
 
 
-def figure_five() -> None:
+def figure_six() -> None:
     """The horizon trade-off: ranking quality up, operational recall down."""
     import json
     import numpy as np
@@ -180,12 +180,12 @@ def figure_five() -> None:
         a.grid(axis="y", color="#E4E4E4", lw=0.9); a.set_axisbelow(True)
         for spine in ("top", "right"): a.spines[spine].set_visible(False)
     fig.tight_layout()
-    fig.savefig(OUT / "figure5_horizon_tradeoff.png", dpi=DPI, bbox_inches="tight",
+    fig.savefig(OUT / "figure6_horizon_tradeoff.png", dpi=DPI, bbox_inches="tight",
                 facecolor="white")
     plt.close(fig)
 
 
-def figure_six() -> None:
+def figure_five() -> None:
     """Predicted against observed, by decile of predicted probability."""
     import pandas as pd
     s = pd.read_parquet(PROC / "ensemble_test_scores.parquet")
@@ -204,8 +204,55 @@ def figure_six() -> None:
     ax.grid(color="#E8E8E8", lw=0.9); ax.set_axisbelow(True)
     for spine in ("top", "right"): ax.spines[spine].set_visible(False)
     ax.legend(frameon=False, fontsize=11, loc="upper left")
-    fig.savefig(OUT / "figure6_calibration.png", dpi=DPI, bbox_inches="tight",
+    fig.savefig(OUT / "figure5_calibration.png", dpi=DPI, bbox_inches="tight",
                 facecolor="white")
+    plt.close(fig)
+
+
+def figure_eight() -> None:
+    """The data pipeline, end to end. Appendix A."""
+    from matplotlib.patches import FancyArrowPatch
+    fig, ax = plt.subplots(figsize=(8.4, 10.2))
+    ax.set_xlim(0, 10); ax.set_ylim(0, 25.2); ax.axis("off")
+
+    def box(y, h, text, fill=LIGHT, w=7.2, x=1.4, fs=11.5):
+        ax.add_patch(Rectangle((x, y), w, h, facecolor=fill, edgecolor=INK, lw=1.3))
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs,
+                color="white" if fill == DARK else INK, linespacing=1.45)
+
+    def arrow(y_from, y_to, x=5.0):
+        ax.add_patch(FancyArrowPatch((x, y_from), (x, y_to), arrowstyle="-|>",
+                                     mutation_scale=15, color=INK, lw=1.4))
+
+    rows = [
+        (23.0, 1.7, "DATA_SOURCE.xlsx  23,407 records, 2021-2025\n"
+                    "Additional_data.xlsx  4,616 records, 2011-2026", MID),
+        (20.7, 1.5, "Merge and deduplicate\n1,340 duplicate pairs removed, "
+                    "1,068 values enriched", LIGHT),
+        (18.4, 1.5, "Reconcile 905 free-text area labels\nonto the official 774 units", LIGHT),
+        (16.1, 1.5, "Place each incident by coordinate, name\nor gazetteer: 26,391 of 26,683 placed", LIGHT),
+        (13.8, 1.5, "Build the weekly panel\n774 areas x 655 weeks = 506,970 rows", LIGHT),
+        (11.5, 1.5, "Compute 42 features, every window ending at t-1\n"
+                    "leakage assertions run on every build", LIGHT),
+        (9.2, 1.5, "Fit and evaluate on five rolling-origin folds\n"
+                   "hurdle, boosting, forest, graph network, stack", LIGHT),
+        (6.9, 1.5, "Score the forecast week at 7, 14 and 28 days\n"
+                   "recalibrate, band and extract drivers", LIGHT),
+        (4.6, 1.5, "Decision-support interface\nprobability, tier and drivers per area", DARK),
+    ]
+    for y, h, t, c in rows:
+        box(y, h, t, c)
+    for i in range(len(rows) - 1):
+        arrow(rows[i][0], rows[i + 1][0] + rows[i + 1][1])
+
+    box(2.1, 1.6, "Verification: 603 claims in Chapters Three to Five\n"
+                  "re-derived from the artefacts by four checking scripts",
+        "white", w=8.4, x=0.8, fs=11)
+    ax.add_patch(FancyArrowPatch((0.8, 12.25), (0.35, 12.25), arrowstyle="-",
+                                 color="#8A8A8A", lw=1.2))
+    ax.add_patch(FancyArrowPatch((0.35, 12.25), (0.35, 2.9), arrowstyle="-|>",
+                                 mutation_scale=13, color="#8A8A8A", lw=1.2))
+    fig.savefig(OUT / "figure8_pipeline.png", dpi=DPI, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 
@@ -215,7 +262,8 @@ if __name__ == "__main__":
     figure_four()
     figure_five()
     figure_six()
+    figure_eight()
     for f in ("figure2_leakage_window.png", "figure3_stacking_design.png",
-              "figure4_fold_performance.png", "figure5_horizon_tradeoff.png",
-              "figure6_calibration.png"):
+              "figure4_fold_performance.png", "figure6_horizon_tradeoff.png",
+              "figure5_calibration.png", "figure8_pipeline.png"):
         print(f"wrote {OUT / f} ({(OUT / f).stat().st_size:,} bytes)")

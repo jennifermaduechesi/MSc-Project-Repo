@@ -170,8 +170,18 @@ for m in re.finditer(r"(?<![\d.\w])\d+(?:[.,]\d+)+|(?<![\d.\w])\d{3,}|(?<![\d.\w
     if re.fullmatch(r"(19|20)\d\d", t.replace(",", "")) or t in WHITELIST:
         continue
     tokens.add(t)
-orphans = [t for t in sorted(tokens)
-           if not any(t in v for v in body.values())]
+def carried(t: str) -> bool:
+    """A figure counts as carried forward if it appears in a source chapter as written,
+    or as the decimal a percentage restates (19.6 per cent for a recall of 0.196)."""
+    if any(t in v for v in body.values()):
+        return True
+    try:
+        as_decimal = f"{float(t.replace(',', '')) / 100:.3f}"
+    except ValueError:
+        return False
+    return any(as_decimal in v for v in body.values())
+
+orphans = [t for t in sorted(tokens) if not carried(t)]
 check("consistency: every figure also appears in Chapter Three or Four", [], orphans)
 print(f"  ({len(tokens)} distinct figures carried forward, "
       f"{len(tokens) - len(orphans)} found in the source chapters)")

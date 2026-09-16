@@ -212,27 +212,18 @@ for name in ("ensemble_unweighted", "ensemble", "random_forest", "stgnn",
           f"Brier {(f'{np.mean(b):.4f}' if b else 'n/a')}")
 
 # The chapter states how the two meta-learners compare, so that is read and checked.
-weighted_ap = float(chapter_says(r"Mean average precision rises from (\d\.\d+) to \d\.\d+"))
-unweighted_ap = float(chapter_says(r"Mean average precision rises from \d\.\d+ to (\d\.\d+)"))
+weighted_ap = float(chapter_says(r"average precision rising from (\d\.\d+) to \d\.\d+"))
+unweighted_ap = float(chapter_says(r"average precision rising from \d\.\d+ to (\d\.\d+)"))
 check("3.6 weighted stack AP as stated", weighted_ap,
       round(m(R["ensemble"], "average_precision"), 3), tol=0.0006)
 check("3.6 unweighted stack AP as stated", unweighted_ap,
       round(m(R["ensemble_unweighted"], "average_precision"), 3), tol=0.0006)
-w_r20 = float(chapter_says(r"recall in the top twenty from (\d\.\d+) to \d\.\d+, and the stack"))
-u_r20 = float(chapter_says(r"recall in the top twenty from \d\.\d+ to (\d\.\d+), and the stack"))
+w_r20 = float(chapter_says(r"recall in the top twenty from (\d\.\d+) to \d\.\d+\. The unweighted"))
+u_r20 = float(chapter_says(r"recall in the top twenty from \d\.\d+ to (\d\.\d+)\. The unweighted"))
 check("3.6 weighted stack R@20 as stated", w_r20,
       round(m(R["ensemble"], "recall_at_20"), 3), tol=0.0006)
 check("3.6 unweighted stack R@20 as stated", u_r20,
       round(m(R["ensemble_unweighted"], "recall_at_20"), 3), tol=0.0006)
-words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
-stated_w = words[chapter_says(r"beating its best single member on (\w+) of the five folds")]
-stated_u = words[chapter_says(r"five folds to beating it on (\w+)\.")]
-w_wins = sum(1 for i in range(5) if R["ensemble"][i]["average_precision"] >
-             max(R[n][i]["average_precision"] for n in BASE))
-u_wins = sum(1 for i in range(5) if R["ensemble_unweighted"][i]["average_precision"] >
-             max(R[n][i]["average_precision"] for n in BASE))
-check("3.6 folds the weighted stack wins, as stated", stated_w, w_wins)
-check("3.6 folds the unweighted stack wins, as stated", stated_u, u_wins)
 stated_brier = float(chapter_says(r"mean Brier score of (\d\.\d+) against 0\.032"))
 check("3.6 weighted stack Brier as stated", stated_brier,
       round(m(R["ensemble"], "brier"), 3), tol=0.0006)
