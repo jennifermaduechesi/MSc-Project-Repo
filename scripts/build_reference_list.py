@@ -20,7 +20,8 @@ from pathlib import Path
 D = Path("dissertation")
 REF_FILES = ["chapter1_references.md", "chapter2_references.md", "chapter3_references.md"]
 CHAPTERS = ["chapter1_introduction_v2.md", "chapter2_literature_review.md",
-            "chapter3_methodology.md", "chapter4_results.md"]
+            "chapter3_methodology.md", "chapter4_results.md",
+            "chapter5_conclusions.md"]
 OUT = D / "references_consolidated.md"
 
 # Departures from what Crossref returns that were checked against the publisher and are

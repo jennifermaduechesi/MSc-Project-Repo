@@ -344,6 +344,29 @@ check("4.11 best member on recall is the logistic", "logistic",
       max(("logistic", "random_forest", "gradient_boosting", "stgnn"),
           key=lambda m: mean_of(ens["results"], m, "recall_at_20")))
 
+# Three claims Chapter Five's checker caught in this chapter, pinned here so they cannot
+# recur: the per-fold list quoted in prose, the graph network's Brier quoted to three
+# places rather than four, and the two lift figures, which are different quantities and
+# had been conflated ("5.4 times better than chance at the top of the list": 5.4 is
+# average precision over the base rate, and the top-of-list figure is 7.6).
+stated_folds = [float(x) for x in re.findall(
+    r"[\d.]+", says(r"Average precision for the stack runs ([\d., ]+?) across the five folds"))]
+check("4.2 per-fold AP quoted in prose", stated_folds,
+      [round(f["average_precision"], 3) for f in ens["results"]["ensemble_unweighted"]])
+check("4.2 graph network Brier in prose",
+      num(says(r"the graph network at ([\d.]+), the weighted stack")),
+      mean_of(ens["results"], "stgnn", "brier"), 0.0005)
+check("4.4 graph network Brier restated",
+      num(says(r"Its Brier score of ([\d.]+) is the worst")),
+      mean_of(ens["results"], "stgnn", "brier"), 0.0005)
+check("4.11 AP lift over base", num(says(r"sits ([\d.]+) times above the base rate")),
+      mean_of(ens["results"], "ensemble_unweighted", "ap_lift_over_base"), 0.05)
+check("4.11 lift at top twenty", num(says(r"catches ([\d.]+) times what a random list")),
+      mean_of(ens["results"], "ensemble_unweighted", "lift_at_20"), 0.05)
+check("4.11 fold AP maximum restated",
+      num(says(r"ranges from [\d.]+ to ([\d.]+) across the five folds")),
+      max(f["average_precision"] for f in ens["results"]["ensemble_unweighted"]), 0.0005)
+
 w_ = max(len(l) for l, _, _ in PASS + FAIL) + 2
 for l, s_, c_ in PASS: print(f"  [pass] {l:<{w_}} stated {str(s_)[:30]:>32}  computed {str(c_)[:30]:>32}")
 for l, s_, c_ in FAIL: print(f"  [FAIL] {l:<{w_}} stated {str(s_)[:30]:>32}  computed {str(c_)[:30]:>32}")
