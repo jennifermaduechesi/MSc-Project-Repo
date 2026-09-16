@@ -53,6 +53,10 @@ from evaluate_protocol import (  # noqa: E402
 )
 from train_ensemble import fit_predict_gnn, logit  # noqa: E402
 
+def days_label(h):
+    return f"{h * 7}d"
+
+
 HORIZONS = (1, 2, 4)                 # weeks: 7, 14 and 28 days
 MULTIPLES = (8, 4, 2)                # Severe, High, Elevated cut points
 ANCHOR_WEEKS = 52
@@ -103,6 +107,43 @@ READABLE = {
     "cal_cos": "time of year",
     "time_index": "position in the record",
 }
+
+
+def recalibrate_to_regime(probability: np.ndarray, target: float) -> tuple[np.ndarray, float]:
+    """Shift predictions on the log-odds scale so their mean matches the recent rate.
+
+    The `cov_sources` feature of section 3.4 records how many files were recording in a
+    week. It cannot separate the two periods where only one was. The 363 weeks of 2014 to
+    2020 carry a positive rate of 0.0060 and the 30 weeks of 2026 carry 0.0137, a factor
+    of 2.28, and the model learns the blend those 393 weeks average to. Asked to forecast
+    a 2026 week it returns a mean probability of 0.0063 against an observed recent rate
+    of 0.0137, so it is low by rather more than half.
+
+    That is a level error, not a ranking error. A single shift on the log-odds scale is
+    monotone, so it moves every probability without reordering any area, and the order is
+    what the ranked list and every evaluation measure in section 3.5 depend on. What it
+    does fix is the banding, because section 3.8 compares a predicted probability against
+    an observed rate, and that comparison is only meaningful when the two are on the same
+    scale.
+
+    Solving for the shift rather than assuming one keeps the correction auditable: the
+    returned value says exactly how far the model had to be moved, and a shift near zero
+    would mean no correction was needed.
+    """
+    from scipy.optimize import brentq
+    clipped = np.clip(probability, 1e-9, 1 - 1e-9)
+    odds = np.log(clipped / (1 - clipped))
+
+    def gap(shift):
+        return float(np.mean(1.0 / (1.0 + np.exp(-(odds + shift))))) - target
+
+    if gap(0.0) == 0:
+        return probability, 0.0
+    lo, hi = -12.0, 12.0
+    if gap(lo) * gap(hi) > 0:                 # target unreachable, leave it alone
+        return probability, float("nan")
+    shift = brentq(gap, lo, hi, xtol=1e-10)
+    return 1.0 / (1.0 + np.exp(-(odds + shift))), float(shift)
 
 
 def band_of(probability: np.ndarray, anchor: float) -> np.ndarray:
@@ -284,9 +325,13 @@ def main() -> int:
         gy = torch.from_numpy(labels.astype(np.float32).T)
         n_train_weeks = burn_in + len(usable)
         forecast_index = len(all_weeks) - 1
-        probability, linear, weights = fit_stack(
+        raw, linear, weights = fit_stack(
             train, forecast, features,
             (gx, gy, edge_index, n_train_weeks, forecast_index))
+        probability, shift = recalibrate_to_regime(raw, anchor)
+        print(f"  {days_label(horizon):>3} mean prediction {raw.mean():.4f} -> "
+              f"{probability.mean():.4f} against a recent rate of {anchor:.4f} "
+              f"(log-odds shift {shift:+.3f})")
         band = band_of(probability, anchor)
         order = (-probability).argsort()
         rank = np.empty(len(probability), dtype=int)
@@ -304,6 +349,8 @@ def main() -> int:
             "anchor_weeks": len(anchor_window),
             "anchor_coverage": forecast_coverage,
             "anchor_from": str(anchor_window[0].date()),
+            "raw_mean_prediction": float(raw.mean()),
+            "recalibration_log_odds_shift": shift,
             "anchor_to": str(anchor_window[-1].date()),
             "cuts": {"Elevated": MULTIPLES[2] * anchor, "High": MULTIPLES[1] * anchor,
                      "Severe": MULTIPLES[0] * anchor},
