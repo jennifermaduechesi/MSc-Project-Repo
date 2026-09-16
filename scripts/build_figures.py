@@ -121,8 +121,101 @@ def figure_three() -> None:
     plt.close(fig)
 
 
+def figure_four() -> None:
+    """Average precision per fold, every model. Chapter Four, the model comparison."""
+    import json
+    res = json.load(open(PROC / "ensemble_results.json"))["results"]
+    order = [("long_run", "long-run rate baseline"), ("recency", "recency baseline"),
+             ("gradient_boosting", "gradient boosting"), ("logistic", "logistic, calibrated"),
+             ("stgnn", "graph network"), ("random_forest", "random forest"),
+             ("ensemble_unweighted", "stack, unweighted meta")]
+    fig, ax = plt.subplots(figsize=(10.0, 5.4))
+    marks = ["o", "s", "^", "D", "v", "P", "X"]
+    greys = ["#B0B0B0", "#9A9A9A", "#848484", "#6E6E6E", "#585858", "#3C3C3C", INK]
+    folds = [1, 2, 3, 4, 5]
+    for (key, label), mk, col in zip(order, marks, greys):
+        ap = [f["average_precision"] for f in res[key]]
+        ax.plot(folds, ap, marker=mk, color=col, lw=2.0 if key == "ensemble_unweighted" else 1.2,
+                ms=8 if key == "ensemble_unweighted" else 6, label=label,
+                zorder=3 if key == "ensemble_unweighted" else 2)
+    ax.set_xticks(folds)
+    ax.set_xlabel("rolling-origin fold", fontsize=12)
+    ax.set_ylabel("average precision", fontsize=12)
+    ax.set_xlim(0.8, 5.2)
+    ax.grid(axis="y", color="#E4E4E4", lw=0.9)
+    ax.set_axisbelow(True)
+    for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+    ax.legend(frameon=False, fontsize=10.5, ncol=2, loc="upper left")
+    fig.savefig(OUT / "figure4_fold_performance.png", dpi=DPI, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+
+
+def figure_five() -> None:
+    """The horizon trade-off: ranking quality up, operational recall down."""
+    import json
+    import numpy as np
+    prot = json.load(open(PROC / "protocol_results.json"))["horizon"]
+    keys = ["7d", "14d", "28d"]
+    ap = [np.mean([f["average_precision"] for f in prot[k]]) for k in keys]
+    r20 = [np.mean([f["recall_at_20"] for f in prot[k]]) for k in keys]
+    lift = [np.mean([f["lift_at_20"] for f in prot[k]]) for k in keys]
+    x = range(3)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10.6, 4.4))
+    a1.plot(x, ap, marker="o", color=INK, lw=2.0, ms=8)
+    a1.set_ylabel("average precision", fontsize=12)
+    a1.set_title("ranking quality rises with the window", fontsize=12.5, pad=10)
+    # Recall alone, on its own axis. An earlier draft overlaid lift divided by forty on
+    # this axis, which put two different quantities on one scale and read as though the
+    # two were comparable. They are not.
+    a2.plot(x, r20, marker="s", color=INK, lw=2.0, ms=8)
+    for xi, (r, l) in enumerate(zip(r20, lift)):
+        a2.annotate(f"lift {l:.1f}x", (xi, r), textcoords="offset points",
+                    xytext=(0, -20), ha="center", fontsize=10.5, color="#5A5A5A")
+    a2.set_ylabel("recall at top 20", fontsize=12)
+    a2.set_title("what a patrol list catches falls", fontsize=12.5, pad=10)
+    a2.set_ylim(min(r20) * 0.86, max(r20) * 1.05)
+    for a in (a1, a2):
+        a.set_xticks(list(x)); a.set_xticklabels(["7 days", "14 days", "28 days"], fontsize=11)
+        a.grid(axis="y", color="#E4E4E4", lw=0.9); a.set_axisbelow(True)
+        for spine in ("top", "right"): a.spines[spine].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(OUT / "figure5_horizon_tradeoff.png", dpi=DPI, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+
+
+def figure_six() -> None:
+    """Predicted against observed, by decile of predicted probability."""
+    import pandas as pd
+    s = pd.read_parquet(PROC / "ensemble_test_scores.parquet")
+    s["dec"] = pd.qcut(s["ensemble_unweighted"], 10, labels=False, duplicates="drop")
+    g = s.groupby("dec").agg(predicted=("ensemble_unweighted", "mean"),
+                             observed=("occurred", "mean"))
+    fig, ax = plt.subplots(figsize=(6.4, 5.6))
+    top = float(max(g["predicted"].max(), g["observed"].max())) * 1.08
+    ax.plot([0, top], [0, top], ls=(0, (5, 4)), color="#9A9A9A", lw=1.4,
+            label="perfect calibration")
+    ax.plot(g["predicted"], g["observed"], marker="o", color=INK, lw=1.8, ms=7,
+            label="the stack, unweighted meta")
+    ax.set_xlabel("mean predicted probability", fontsize=12)
+    ax.set_ylabel("observed event rate", fontsize=12)
+    ax.set_xlim(0, top); ax.set_ylim(0, top)
+    ax.grid(color="#E8E8E8", lw=0.9); ax.set_axisbelow(True)
+    for spine in ("top", "right"): ax.spines[spine].set_visible(False)
+    ax.legend(frameon=False, fontsize=11, loc="upper left")
+    fig.savefig(OUT / "figure6_calibration.png", dpi=DPI, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     figure_two()
     figure_three()
-    for f in ("figure2_leakage_window.png", "figure3_stacking_design.png"):
+    figure_four()
+    figure_five()
+    figure_six()
+    for f in ("figure2_leakage_window.png", "figure3_stacking_design.png",
+              "figure4_fold_performance.png", "figure5_horizon_tradeoff.png",
+              "figure6_calibration.png"):
         print(f"wrote {OUT / f} ({(OUT / f).stat().st_size:,} bytes)")
