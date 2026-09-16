@@ -98,7 +98,7 @@ def weeks_since_last(matrix: np.ndarray, delay: int = 0, cap: int = 520) -> np.n
 
 
 def build_features(events, ops, deaths, taken, adjacency, degree, all_weeks,
-                   dual_from, dual_to, delay: int) -> dict[str, np.ndarray]:
+                   weekly_records, delay: int) -> dict[str, np.ndarray]:
     """The forty-two features of section 3.4, with an extra `delay` weeks withheld.
 
     This mirrors `build_panel.py` deliberately. `check_against_panel` below asserts
@@ -131,10 +131,14 @@ def build_features(events, ops, deaths, taken, adjacency, degree, all_weeks,
     f["own_weeks_since"] = weeks_since_last(events, delay)
     f["own_ever"] = (cumulative > 0).astype(np.float32)
 
-    # The coverage indicator describes which files were recording, which a forecaster
-    # knows without waiting for any report, so a reporting delay does not touch it.
-    dual = ((all_weeks >= dual_from) & (all_weeks <= dual_to)).astype(np.float32)
-    f["cov_sources"] = np.repeat((1.0 + dual)[None, :], events.shape[0], axis=0)
+    # Recording intensity, described in section 3.4. Unlike the count of recording files
+    # it replaced, this one IS delayed along with everything else. The old indicator said
+    # which files were recording, which a forecaster knows without waiting for a report.
+    # This counts records that have actually been published, so a reporting lag withholds
+    # them exactly as it withholds the incident counts.
+    national = np.repeat(np.asarray(weekly_records, dtype=np.float32)[None, :],
+                         events.shape[0], axis=0)
+    f["cov_records_13w"] = rolling_sum(national, 13, delay)
     f["nb_degree"] = np.repeat(degree[:, None], len(all_weeks), axis=1)
     week_of_year = np.array([w.isocalendar()[1] for w in all_weeks], dtype=np.float32)
     f["cal_sin"] = np.repeat(np.sin(2 * np.pi * week_of_year / 52.0)[None, :], events.shape[0], axis=0)
@@ -362,8 +366,8 @@ def main() -> int:
     ops = count_matrix(operations, pcodes, all_weeks)
     deaths = count_matrix(targets, pcodes, all_weeks, "deaths")
     taken = count_matrix(targets, pcodes, all_weeks, "kidnapped")
-    main_log = incidents[incidents["source_file"] == "main"]
-    dual_from, dual_to = main_log["week"].min(), main_log["week"].max()
+    weekly_records = (incidents.groupby("week").size()
+                      .reindex(all_weeks, fill_value=0).to_numpy(dtype=np.float32))
 
     print(f"areas {len(pcodes)}, modelled weeks {len(model_weeks)}, burn-in {burn_in}")
 
@@ -373,7 +377,7 @@ def main() -> int:
     # ------------------------------------------------------------------ verification
     print("\nverification")
     features0 = build_features(events, ops, deaths, taken, adjacency, degree,
-                               all_weeks, dual_from, dual_to, delay=0)
+                               all_weeks, weekly_records, delay=0)
     feature_names = list(features0)
     labels1 = forward_label(events, 1)
     base_frame = assemble(pcodes, model_weeks, features0, labels1, keep, names)
@@ -416,7 +420,7 @@ def main() -> int:
         for d in DELAYS:
             features = features0 if d == 0 else build_features(
                 events, ops, deaths, taken, adjacency, degree, all_weeks,
-                dual_from, dual_to, delay=d)
+                weekly_records, delay=d)
             frame = assemble(pcodes, model_weeks, features, labels1, keep, names)
             weeks = np.sort(frame["week"].unique())
             rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))

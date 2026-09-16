@@ -209,12 +209,26 @@ def main() -> int:
     features["own_weeks_since"] = weeks_since_last(events)
     features["own_ever"] = (cumulative_events > 0).astype(np.float32)
 
-    # Coverage regime. Derived from the general log's own extent in the data rather
-    # than hard-coded, so it stays correct if the supplied files change.
-    main_log = incidents[incidents["source_file"] == "main"]
-    dual_from, dual_to = main_log["week"].min(), main_log["week"].max()
-    dual = ((all_weeks >= dual_from) & (all_weeks <= dual_to)).astype(np.float32)
-    features["cov_sources"] = np.repeat((1.0 + dual)[None, :], len(pcodes), axis=0)
+    # Recording intensity, replacing the earlier count of how many files were recording.
+    #
+    # The count could not separate two periods that share it. The 363 weeks of 2014 to
+    # 2020 and the 30 weeks of 2026 are both recorded by one file, but carry positive
+    # rates of 0.0060 and 0.0137, a factor of 2.28. A model conditioning on the count
+    # learns the blend those 393 weeks average to, and asked to forecast a 2026 week
+    # returned a mean probability of 0.0063 against an observed 0.0137. That defect was
+    # found only when the first live forecast was produced, because it concerns the
+    # boundary between regimes rather than performance inside any one of them.
+    #
+    # Volume says what the count cannot. The national record count over the previous
+    # thirteen completed weeks runs at roughly 26 in 2014, 1,170 in the dual-source
+    # years and 156 in 2026, so the three eras are distinguishable rather than merged.
+    # It is observable when a forecast is issued, since it counts only records that have
+    # already been published, and it is lagged like every other history feature so the
+    # week being predicted contributes nothing to it.
+    weekly_records = (incidents.groupby("week").size()
+                      .reindex(all_weeks, fill_value=0).to_numpy(dtype=np.float32))
+    national = np.repeat(weekly_records[None, :], len(pcodes), axis=0)
+    features["cov_records_13w"] = rolling_sum(national, 13)
 
     features["nb_degree"] = np.repeat(degree[:, None], len(all_weeks), axis=1)
     week_of_year = np.array([w.isocalendar()[1] for w in all_weeks], dtype=np.float32)
@@ -271,11 +285,19 @@ def main() -> int:
     print(f"positives       : {int(panel.occurred.sum()):,} ({100 * panel.occurred.mean():.3f}%)")
     print(f"features        : {len(feature_names)}")
     print(f"areas ever hit  : {panel.loc[panel.occurred == 1, 'pcode'].nunique()} of {len(pcodes)}")
-    print("\ncoverage regimes in the modelled window:")
-    for sources, block in panel.groupby("cov_sources"):
-        weeks = block["week"].nunique()
+    # Recording volume rather than a count of files, so the report bands it into
+    # quartiles. The point of the feature is that volume varies continuously and that
+    # two periods recorded by the same number of files need not be comparable.
+    print("\nrecording volume across the modelled window "
+          "(national records published in the prior 13 weeks):")
+    volume = panel.drop_duplicates("week").set_index("week")["cov_records_13w"]
+    edges = np.quantile(volume.to_numpy(), [0, 0.25, 0.5, 0.75, 1.0])
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        weeks = volume[(volume >= lo) & (volume <= hi)].index
+        block = panel[panel["week"].isin(weeks)]
         rate = block.groupby("week")["occurred"].sum().mean()
-        print(f"  {int(sources)} source(s): {weeks:>3} weeks, {rate:>5.1f} positive area-weeks per week, "
+        print(f"  {int(lo):>5} to {int(hi):>5} records: {len(weeks):>3} weeks, "
+              f"{rate:>5.1f} positive area-weeks per week, "
               f"{block['week'].min().date()} to {block['week'].max().date()}")
     print(f"max in a week   : {int(panel.event_count.max())}")
     counts = panel.loc[panel.occurred == 1, "event_count"]

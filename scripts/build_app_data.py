@@ -101,7 +101,7 @@ READABLE = {
     "own_taken_4w": "people abducted here, last 4 weeks",
     "own_taken_13w": "people abducted here, last 13 weeks",
     "own_taken_52w": "people abducted here, last 52 weeks",
-    "cov_sources": "number of source files recording",
+    "cov_records_13w": "records published nationally, last 13 weeks",
     "nb_degree": "number of neighbouring areas",
     "cal_sin": "time of year",
     "cal_cos": "time of year",
@@ -132,12 +132,14 @@ FAMILY_LABEL = {
 def recalibrate_to_regime(probability: np.ndarray, target: float) -> tuple[np.ndarray, float]:
     """Shift predictions on the log-odds scale so their mean matches the recent rate.
 
-    The `cov_sources` feature of section 3.4 records how many files were recording in a
-    week. It cannot separate the two periods where only one was. The 363 weeks of 2014 to
-    2020 carry a positive rate of 0.0060 and the 30 weeks of 2026 carry 0.0137, a factor
-    of 2.28, and the model learns the blend those 393 weeks average to. Asked to forecast
-    a 2026 week it returns a mean probability of 0.0063 against an observed recent rate
-    of 0.0137, so it is low by rather more than half.
+    Retained as a diagnostic rather than as a correction. The coverage feature of section
+    3.4 used to count how many files were recording, which could not separate the 363
+    sparse weeks of 2014 to 2020 from the 30 weeks of 2026 that share that count, and a
+    model conditioning on it forecast a 2026 week at 0.0063 against an observed 0.0137.
+    The feature now carries recording volume instead, which distinguishes them, so the
+    shift this function solves for should come out near zero. It is still applied and
+    still reported, because a shift that has grown is the clearest signal that the
+    forecast period has drifted away from anything the model was fitted on.
 
     That is a level error, not a ranking error. A single shift on the log-odds scale is
     monotone, so it moves every probability without reordering any area, and the order is
@@ -307,14 +309,14 @@ def main() -> int:
         # forecast, not merely the weeks nearest to it.
         #
         # Section 3.4 records that the general incident log stops on 31 December 2025,
-        # so every week after that is recorded by one file where earlier weeks had two.
-        # A plain 52-week window straddles that boundary: at the forecast week it mixes
-        # 22 dual-source weeks with 30 single-source ones and returns 0.0325, against
-        # 0.0137 for the single-source weeks alone, a factor of 2.37. The model
-        # meanwhile conditions on `cov_sources` and correctly predicts what will be
-        # *recorded* under single-source coverage, so banding those predictions against
-        # a partly dual-source rate compares two different things and empties the upper
-        # bands. On the first build it left one area in Severe and two in High.
+        # so the weeks after it are published at a far lower volume than the weeks
+        # before. A plain 52-week window straddles that boundary: at the forecast week
+        # it mixed 22 high-volume weeks with 30 low-volume ones and returned 0.0325
+        # against 0.0137 for the low-volume weeks alone, a factor of 2.37. The model
+        # conditions on recording volume and predicts what will be *recorded* at the
+        # current volume, so banding those predictions against a rate drawn partly from
+        # a busier period compares two different things and empties the upper bands. On
+        # the first build it left one area in Severe and two in High.
         #
         # The anchor is therefore taken from the most recent *contiguous* run of weeks
         # sharing the forecast week's coverage value, still capped at 52. This is the
@@ -327,19 +329,25 @@ def main() -> int:
         # when the specialist file recorded far less, and produced an anchor window
         # running from 2020-07-27 to 2026-07-27. Two periods can share a coverage count
         # and nothing else.
-        forecast_coverage = float(forecast["cov_sources"].iloc[0])
-        coverage_by_week = (frame.drop_duplicates("week")
-                            .set_index("week")["cov_sources"].astype(float))
+        # The anchor still has to describe a comparable recording regime. With volume
+        # rather than a file count, "comparable" means within a factor of two of the
+        # forecast week's own recent publishing rate, which keeps 2026 weeks together
+        # and excludes both the dual-source years and the sparse early ones.
+        forecast_volume = float(forecast["cov_records_13w"].iloc[0])
+        volume_by_week = (frame.drop_duplicates("week")
+                          .set_index("week")["cov_records_13w"].astype(float))
+        lo, hi = forecast_volume / 2.0, forecast_volume * 2.0
         run: list = []
         for week in reversed(list(usable)):
-            if coverage_by_week.get(week) != forecast_coverage:
+            v = volume_by_week.get(week)
+            if v is None or not (lo <= float(v) <= hi):
                 break
             run.append(week)
         run.reverse()
         anchor_window = (run or list(usable))[-ANCHOR_WEEKS:]
         anchor = float(frame.loc[frame.week.isin(anchor_window), "y"].mean())
-        print(f"  {horizon * 7:>2}d anchor from {len(anchor_window)} weeks at coverage "
-              f"{forecast_coverage:.0f} ({anchor_window[0].date()} to "
+        print(f"  {horizon * 7:>2}d anchor from {len(anchor_window)} weeks near a volume of "
+              f"{forecast_volume:.0f} ({anchor_window[0].date()} to "
               f"{anchor_window[-1].date()}): {anchor:.4f}")
 
         gy = torch.from_numpy(labels.astype(np.float32).T)
@@ -367,7 +375,7 @@ def main() -> int:
         summary[str(days)] = {
             "anchor_rate": anchor,
             "anchor_weeks": len(anchor_window),
-            "anchor_coverage": forecast_coverage,
+            "anchor_volume": forecast_volume,
             "anchor_from": str(anchor_window[0].date()),
             "raw_mean_prediction": float(raw.mean()),
             "recalibration_log_odds_shift": shift,
