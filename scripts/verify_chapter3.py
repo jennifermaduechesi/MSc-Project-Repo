@@ -10,10 +10,45 @@ calibration comparison, the XGBoost configuration trials) are checked by their o
 and are listed at the end as EXTERNAL rather than silently omitted.
 """
 from __future__ import annotations
-import hashlib, json, sys
+import hashlib, json, re, sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+# ---------------------------------------------------------------- reading the chapter
+CHAPTER = Path("dissertation/chapter3_methodology.md")
+
+def chapter_table(number: int) -> list[list[str]]:
+    """Return the rows of a numbered table as they stand in the chapter.
+
+    The stated side of every table check is read from the document rather than
+    transcribed into this file. Transcription is how a check quietly stops testing
+    anything: update the chapter, update the copy here to match, and the comparison
+    passes without ever having looked at the data.
+    """
+    text = CHAPTER.read_text()
+    start = text.index(f"\nTable {number}\n")
+    block = text[start:]
+    rows = []
+    for line in block.splitlines():
+        s = line.strip()
+        if s.startswith("|"):
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            if all(set(c) <= set("-: ") for c in cells):
+                continue
+            rows.append(cells)
+        elif rows:
+            break
+    return rows
+
+
+def chapter_says(pattern: str, group: int = 1) -> str:
+    """Pull one figure out of the chapter's prose by regular expression."""
+    m = re.search(pattern, CHAPTER.read_text())
+    if not m:
+        raise SystemExit(f"chapter text not found for pattern: {pattern}")
+    return m.group(group)
+
 
 PASS, FAIL, checks = [], [], 0
 
@@ -148,88 +183,88 @@ print("\n-- 3.5 Model results --------------------------------------------------
 h = json.load(open("data/processed/hurdle_results.json"))
 s1 = h["stage_one"]
 def m(rows, k): return round(float(np.mean([r[k] for r in rows])), 4)
-check("logistic mean AP", 0.1880, m(s1["logistic"], "average_precision"), tol=0.00006)
-check("logistic calibrated mean AP", 0.1869, m(s1["logistic_calibrated"], "average_precision"), tol=0.00006)
-check("logistic mean R@20", 0.192, round(m(s1["logistic"], "recall_at_20"), 3), tol=0.0006)
-check("logistic calibrated mean R@20", 0.194, round(m(s1["logistic_calibrated"], "recall_at_20"), 3), tol=0.0006)
-check("logistic mean Brier", 0.3983, m(s1["logistic"], "brier"), tol=0.00006)
-check("logistic calibrated mean Brier", 0.0316, m(s1["logistic_calibrated"], "brier"), tol=0.00006)
-check("boosting mean AP", 0.1731, m(s1["gradient_boosting"], "average_precision"), tol=0.00006)
-check("boosting calibrated mean AP", 0.1769, m(s1["gradient_boosting_calibrated"], "average_precision"), tol=0.00006)
-br = [r["brier"] for r in s1["logistic"]]
-check("logistic Brier range low", 0.233, round(min(br), 3), tol=0.0006)
-check("logistic Brier range high", 0.530, round(max(br), 3), tol=0.0006)
-brc = [r["brier"] for r in s1["logistic_calibrated"]]
-check("calibrated Brier range low", 0.026, round(min(brc), 3), tol=0.0006)
-check("calibrated Brier range high", 0.039, round(max(brc), 3), tol=0.0006)
-s2 = h["stage_two"]
-wins = sum(1 for r in s2 if r["mae"] < r["mae_always_one"])
+
+print("  (reported, not checked: Chapter Three specifies these models and Chapter Four")
+print("   reports their results, so there is no claim here to test them against)")
+for name in ("logistic", "logistic_calibrated", "gradient_boosting",
+             "gradient_boosting_calibrated"):
+    r = s1[name]
+    print(f"    {name:<30} AP {m(r, 'average_precision'):.4f}  "
+          f"R@20 {m(r, 'recall_at_20'):.3f}  Brier {m(r, 'brier'):.4f}")
+g = json.load(open("data/processed/stgnn_results.json"))["folds"]
+print(f"    {'graph network':<30} AP {m(g, 'average_precision'):.4f}  "
+      f"R@20 {m(g, 'recall_at_20'):.3f}")
+
+# Two claims section 3.5 does make, and one section 3.6 makes, are checked.
+wins = sum(1 for r in h["stage_two"] if r["mae"] < r["mae_always_one"])
 check("folds where stage two beats always-predict-one", 0, wins)
 
-g = json.load(open("data/processed/stgnn_results.json"))
-check("graph network mean AP", 0.1809, round(float(np.mean([r["average_precision"] for r in g["folds"]])), 4), tol=0.00006)
-check("graph network mean R@20", 0.174, round(float(np.mean([r["recall_at_20"] for r in g["folds"]])), 3), tol=0.0006)
-
-
-# ------------------------------------------------------------ 3.6 stacking ensemble
 print("\n-- 3.6 The stacking ensemble ------------------------------------------------")
 e = json.load(open("data/processed/ensemble_results.json"))
 R = e["results"]
 BASE = ["logistic", "random_forest", "gradient_boosting", "stgnn"]
-check("weighted stack mean AP", 0.1949, m(R["ensemble"], "average_precision"), tol=0.00006)
-check("unweighted stack mean AP", 0.1967, m(R["ensemble_unweighted"], "average_precision"), tol=0.00006)
-check("weighted stack mean Brier", 0.1942, m(R["ensemble"], "brier"), tol=0.00006)
-check("unweighted stack mean Brier", 0.0316, m(R["ensemble_unweighted"], "brier"), tol=0.00006)
-check("random forest mean AP", 0.1915, m(R["random_forest"], "average_precision"), tol=0.00006)
-check("recency baseline mean AP", 0.1764, m(R["recency"], "average_precision"), tol=0.00006)
-check("long-run baseline mean AP", 0.1372, m(R["long_run"], "average_precision"), tol=0.00006)
-# The stack's logistic member is the same specification as the hurdle script's, but the
-# two scripts feed it rows in different orders: the ensemble sorts by week because the
-# graph network requires that, the hurdle script leaves the panel area-major. The set of
-# rows in every calibration fold is identical, so this is floating-point summation order
-# rather than a difference of model, and it shows up most in recall at a fixed K because
-# membership of the top twenty is discrete and a tiny change can swap the twentieth area.
-# Compared at the precision the chapter reports rather than at full precision, and the
-# gap is quantified in the record rather than waved away.
-check("logistic in stack matches hurdle script AP", 0.1869,
-      round(float(np.mean([r["average_precision"] for r in R["logistic"]])), 4), tol=0.00011)
-check("logistic in stack matches hurdle script R@20", 0.194,
-      round(float(np.mean([r["recall_at_20"] for r in R["logistic"]])), 3), tol=0.0006)
+for name in ("ensemble_unweighted", "ensemble", "random_forest", "stgnn",
+             "logistic", "recency", "gradient_boosting", "long_run"):
+    r = R[name]
+    b = [x["brier"] for x in r if "brier" in x]
+    print(f"    {name:<22} AP {m(r, 'average_precision'):.4f}  "
+          f"R@20 {m(r, 'recall_at_20'):.3f}  "
+          f"Brier {(f'{np.mean(b):.4f}' if b else 'n/a')}")
+
+# The chapter states how the two meta-learners compare, so that is read and checked.
+weighted_ap = float(chapter_says(r"Mean average precision rises from (\d\.\d+) to \d\.\d+"))
+unweighted_ap = float(chapter_says(r"Mean average precision rises from \d\.\d+ to (\d\.\d+)"))
+check("3.6 weighted stack AP as stated", weighted_ap,
+      round(m(R["ensemble"], "average_precision"), 3), tol=0.0006)
+check("3.6 unweighted stack AP as stated", unweighted_ap,
+      round(m(R["ensemble_unweighted"], "average_precision"), 3), tol=0.0006)
+w_r20 = float(chapter_says(r"recall in the top twenty from (\d\.\d+) to \d\.\d+, and the stack"))
+u_r20 = float(chapter_says(r"recall in the top twenty from \d\.\d+ to (\d\.\d+), and the stack"))
+check("3.6 weighted stack R@20 as stated", w_r20,
+      round(m(R["ensemble"], "recall_at_20"), 3), tol=0.0006)
+check("3.6 unweighted stack R@20 as stated", u_r20,
+      round(m(R["ensemble_unweighted"], "recall_at_20"), 3), tol=0.0006)
+words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+stated_w = words[chapter_says(r"beating its best single member on (\w+) of the five folds")]
+stated_u = words[chapter_says(r"five folds to beating it on (\w+)\.")]
 w_wins = sum(1 for i in range(5) if R["ensemble"][i]["average_precision"] >
              max(R[n][i]["average_precision"] for n in BASE))
 u_wins = sum(1 for i in range(5) if R["ensemble_unweighted"][i]["average_precision"] >
              max(R[n][i]["average_precision"] for n in BASE))
-check("folds where weighted stack beats best member", 3, w_wins)
-check("folds where unweighted stack beats best member", 5, u_wins)
-base_wins = sum(1 for i in range(5) if R["ensemble_unweighted"][i]["average_precision"] >
-                R["recency"][i]["average_precision"])
-check("folds where stack beats the recency baseline", 5, base_wins)
-scores = pd.read_parquet("data/processed/ensemble_test_scores.parquet")
-check("recency baseline maximum (a count, not a probability)", 27.0,
-      float(panel["own_events_4w"].max()), tol=0.0001)
-check("long-run baseline maximum", 0.2423, round(float(panel["own_rate_longrun"].max()), 4), tol=0.00006)
+check("3.6 folds the weighted stack wins, as stated", stated_w, w_wins)
+check("3.6 folds the unweighted stack wins, as stated", stated_u, u_wins)
+stated_brier = float(chapter_says(r"mean Brier score of (\d\.\d+) against 0\.032"))
+check("3.6 weighted stack Brier as stated", stated_brier,
+      round(m(R["ensemble"], "brier"), 3), tol=0.0006)
 
 # --------------------------------------------------------- 3.7 evaluation protocol
 print("\n-- 3.7 The evaluation protocol ----------------------------------------------")
 pr = json.load(open("data/processed/protocol_results.json"))
-for key, ap, lift, r20, base in [("7d", 0.1869, 5.1, 0.194, 0.0361),
-                                 ("14d", 0.2810, 4.3, 0.169, 0.0649),
-                                 ("28d", 0.3921, 3.5, 0.141, 0.1126)]:
-    rows = pr["horizon"][key]
-    check(f"horizon {key} AP", ap, m(rows, "average_precision"), tol=0.00006)
-    check(f"horizon {key} lift over base", lift, round(m(rows, "ap_lift_over_base"), 1), tol=0.06)
-    check(f"horizon {key} R@20", r20, round(m(rows, "recall_at_20"), 3), tol=0.0006)
-    check(f"horizon {key} base rate", base, round(m(rows, "base_rate"), 4), tol=0.00006)
-for key, ap, r20, brier in [("0w", 0.1869, 0.194, 0.0316),
-                            ("1w", 0.1763, 0.183, 0.0318),
-                            ("2w", 0.1678, 0.177, 0.0320)]:
-    rows = pr["delay"][key]
-    check(f"delay {key} AP", ap, m(rows, "average_precision"), tol=0.00006)
-    check(f"delay {key} R@20", r20, round(m(rows, "recall_at_20"), 3), tol=0.0006)
-    check(f"delay {key} Brier", brier, m(rows, "brier"), tol=0.00006)
+rows11 = chapter_table(11)[1:]          # Horizon | Base | AP | Lift | R@20 | Lift@20
+for row, key in zip(rows11, ("7d", "14d", "28d")):
+    r = pr["horizon"][key]
+    check(f"Table 11 {row[0]} base rate", float(row[1]), m(r, "base_rate"), tol=0.00006)
+    check(f"Table 11 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 11 {row[0]} lift over base", float(row[3]),
+          round(m(r, "ap_lift_over_base"), 1), tol=0.06)
+    check(f"Table 11 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
+    check(f"Table 11 {row[0]} lift@20", float(row[5]), round(m(r, "lift_at_20"), 1), tol=0.06)
+
+rows12 = chapter_table(12)[1:]          # Delay | Base | AP | Lift | R@20 | Lift@20 | Brier
+for row, key in zip(rows12, ("0w", "1w", "2w")):
+    r = pr["delay"][key]
+    check(f"Table 12 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 12 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
+    check(f"Table 12 {row[0]} Brier", float(row[6]), m(r, "brier"), tol=0.00006)
+
 u = pr["under_reporting"]
-check("under-reporting unweighted AP", 0.1869, m(u["unweighted"], "average_precision"), tol=0.00006)
-check("under-reporting reweighted AP", 0.1867, m(u["reweighted"], "average_precision"), tol=0.00006)
+rows14 = chapter_table(14)[1:]          # Loss | AP | Lift | R@20 | Lift@20 | Brier
+for row, key in zip(rows14, ("unweighted", "reweighted")):
+    r = u[key]
+    check(f"Table 14 {row[0][:22]} AP", float(row[1]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 14 {row[0][:22]} R@20", float(row[3]),
+          round(m(r, "recall_at_20"), 3), tol=0.0006)
+
 check("pooled national detection", 0.365, round(u["pooled_detection"], 3), tol=0.0006)
 check("states carrying their own estimate", 23, u["states_with_own_estimate"])
 check("weight minimum", 0.55, round(u["weight_min"], 2), tol=0.006)
@@ -255,30 +290,59 @@ for st, val in [("Zamfara", 0.518), ("Katsina", 0.440), ("Kaduna", 0.350), ("Bor
 print("\n-- 3.8 The decision-support interface ---------------------------------------")
 rb = json.load(open("data/processed/risk_bands.json"))
 rec = {r["band"]: r for r in rb["anchors"]["recent"]}
-for band, per_week, rate, times, share in [("Severe", 12.5, 0.348, 9.6, 15.6),
-                                           ("High", 28.6, 0.186, 5.2, 19.1),
-                                           ("Elevated", 79.7, 0.082, 2.3, 23.4),
-                                           ("Low", 653.2, 0.018, 0.5, 41.9)]:
-    r = rec[band]
-    check(f"Table 15 {band} areas/week", per_week, round(r["areas_per_week"], 1), tol=0.06)
-    check(f"Table 15 {band} realised rate", rate, round(r["realised_rate"], 3), tol=0.0006)
-    check(f"Table 15 {band} times base", times, round(r["times_base"], 1), tol=0.06)
-    check(f"Table 15 {band} share of events %", share, round(100 * r["share_of_events"], 1), tol=0.06)
-check("events falling in the Low band %", 41.9, round(100 * rb["low_share_pooled"], 1), tol=0.06)
-for fold, share in [("1", 29.9), ("2", 68.5), ("3", 48.0), ("4", 34.0), ("5", 36.5)]:
-    check(f"Low-band event share, fold {fold} %", share,
-          round(100 * rb["low_share_by_fold"][fold], 1), tol=0.06)
-check("band unchanged week to week %", 95.0, round(100 * rb["unchanged_week_to_week"], 1), tol=0.06)
-check("events in rows that change band %", 16.1, round(100 * rb["events_in_moving_rows"], 1), tol=0.06)
+rows15 = chapter_table(15)[1:]          # Band | Definition | Areas | Realised | xBase | Share
+for row in rows15:
+    r = rec[row[0]]
+    check(f"Table 15 {row[0]} areas/week", float(row[2]),
+          round(r["areas_per_week"], 1), tol=0.06)
+    check(f"Table 15 {row[0]} realised rate", float(row[3]),
+          round(r["realised_rate"], 3), tol=0.0006)
+    check(f"Table 15 {row[0]} times base", float(row[4]), round(r["times_base"], 1), tol=0.06)
+    check(f"Table 15 {row[0]} share of events %", float(row[5].rstrip("%")),
+          round(100 * r["share_of_events"], 1), tol=0.06)
+
+# Every figure below is read from section 3.8's prose, so the comparison is between
+# what the chapter says and what the data holds, not between the data and a value typed
+# into this script.
+check("3.8 events falling in the Low band %",
+      float(chapter_says(r"\*\*Across the five test years, (\d+\.\d) per cent of all recorded events")),
+      round(100 * rb["low_share_pooled"], 1), tol=0.06)
+lo = float(chapter_says(r"By fold that share ranges from (\d+\.\d) per cent"))
+hi = float(chapter_says(r"By fold that share ranges from \d+\.\d per cent to (\d+\.\d) per cent"))
+shares = [100 * v for v in rb["low_share_by_fold"].values()]
+check("3.8 lowest per-fold Low share", lo, round(min(shares), 1), tol=0.06)
+check("3.8 highest per-fold Low share", hi, round(max(shares), 1), tol=0.06)
+check("3.8 band unchanged week to week %",
+      float(chapter_says(r"Across consecutive weeks (\d+\.\d) per cent of areas remain")),
+      round(100 * rb["unchanged_week_to_week"], 1), tol=0.06)
+check("3.8 events in rows that change band %",
+      float(chapter_says(r"change band carry (\d+\.\d) per cent of the events")),
+      round(100 * rb["events_in_moving_rows"], 1), tol=0.06)
 tr = rb["transitions"]
-check("Low stays Low", 0.982, round(tr["Low"]["Low"], 3), tol=0.0006)
-check("Severe stays Severe", 0.819, round(tr["Severe"]["Severe"], 3), tol=0.0006)
-for band, n in [("Severe", 108), ("High", 279), ("Elevated", 538)]:
-    check(f"areas ever reaching {band}", n, rb["areas_reaching_band"][band])
+check("3.8 Low stays Low",
+      float(chapter_says(r"Low band stays there (\d+\.\d) per cent")) / 100,
+      round(tr["Low"]["Low"], 3), tol=0.0006)
+check("3.8 Severe stays Severe",
+      float(chapter_says(r"Severe band stays there (\d+\.\d) per cent")) / 100,
+      round(tr["Severe"]["Severe"], 3), tol=0.0006)
+check("3.8 areas ever reaching Severe",
+      int(chapter_says(r"Over the five test years (\d+) of the 774 areas reach the Severe")),
+      rb["areas_reaching_band"]["Severe"])
+check("3.8 areas ever reaching High",
+      int(chapter_says(r"reach the Severe band at least once, (\d+) reach High")),
+      rb["areas_reaching_band"]["High"])
+check("3.8 areas ever reaching Elevated",
+      int(chapter_says(r"reach High and (\d+) reach Elevated")),
+      rb["areas_reaching_band"]["Elevated"])
 sev_hi = rec["Severe"]["areas_per_week"] + rec["High"]["areas_per_week"]
-check("Severe plus High as share of country %", 5.3, round(100 * sev_hi / 774, 1), tol=0.06)
-check("Severe plus High share of events %", 34.7,
-      round(100 * (rec["Severe"]["share_of_events"] + rec["High"]["share_of_events"]), 1), tol=0.06)
+check("3.8 Severe plus High as share of country %",
+      float(chapter_says(r"which is (\d+\.\d) per cent of the country")),
+      round(100 * sev_hi / 774, 1), tol=0.06)
+check("3.8 Severe plus High share of events %",
+      float(chapter_says(r"and account for (\d+\.\d) per cent of the events")),
+      round(100 * (rec["Severe"]["share_of_events"] + rec["High"]["share_of_events"]), 1),
+      tol=0.06)
+
 train_sizes = rb.get("training_by_fold", {})
 if train_sizes:
     check("training anchor: fold 1 Severe areas/week", 187.1,

@@ -132,14 +132,27 @@ FAMILY_LABEL = {
 def recalibrate_to_regime(probability: np.ndarray, target: float) -> tuple[np.ndarray, float]:
     """Shift predictions on the log-odds scale so their mean matches the recent rate.
 
-    Retained as a diagnostic rather than as a correction. The coverage feature of section
-    3.4 used to count how many files were recording, which could not separate the 363
-    sparse weeks of 2014 to 2020 from the 30 weeks of 2026 that share that count, and a
-    model conditioning on it forecast a 2026 week at 0.0063 against an observed 0.0137.
-    The feature now carries recording volume instead, which distinguishes them, so the
-    shift this function solves for should come out near zero. It is still applied and
-    still reported, because a shift that has grown is the clearest signal that the
-    forecast period has drifted away from anything the model was fitted on.
+    Still required, and the reason is worth stating because the expectation was otherwise.
+
+    The coverage feature used to count how many files were publishing, which could not
+    separate the sparse weeks of 2014 to 2020 from the 30 weeks of 2026 that share that
+    count. Replacing it with publishing volume fixed that, and improved every model. It
+    did not remove the level error, and the shift solved for here barely moved, from
+    +0.867 to +0.841.
+
+    The remaining error is in the history windows rather than in the coverage feature.
+    They straddle the same boundary. Measured over the last eighteen completed weeks
+    against the dual-source years, the one and four week counts fall to 0.29 of their
+    former level while the fifty-two week count rises to 1.29, because that window still
+    reaches back into 2025 when publishing was heavy. The model therefore sees an area
+    with a busy year behind it and a very quiet month, which is the signature of a place
+    that has calmed down, and reads it as lower risk. Knowing that publishing is thin does
+    not by itself tell a model to discount that contrast; it would have to learn the
+    interaction, and there are thirty weeks of evidence to learn it from.
+
+    So the shift stays, as a correction rather than a diagnostic. It is solved for rather
+    than assumed, monotone, and reported, so a reader can see exactly how far the forecast
+    period has drifted from what the model was fitted on.
 
     That is a level error, not a ranking error. A single shift on the log-odds scale is
     monotone, so it moves every probability without reordering any area, and the order is
@@ -272,11 +285,15 @@ def main() -> int:
     ops = count_matrix(operations, pcodes, all_weeks)
     deaths = count_matrix(targets, pcodes, all_weeks, "deaths")
     taken = count_matrix(targets, pcodes, all_weeks, "kidnapped")
-    main_log = incidents[incidents["source_file"] == "main"]
-    dual_from, dual_to = main_log["week"].min(), main_log["week"].max()
+    # National publishing volume per week, which the recording-intensity feature of
+    # section 3.4 is built from. Counted over the whole corpus rather than the target
+    # events alone, because what it measures is how much is being published, not how
+    # much violence there is.
+    weekly_records = (incidents.groupby("week").size()
+                      .reindex(all_weeks, fill_value=0).to_numpy(np.float32))
 
     feature_map = build_features(events, ops, deaths, taken, adjacency, degree,
-                                 all_weeks, dual_from, dual_to, delay=0)
+                                 all_weeks, weekly_records, delay=0)
     features = list(feature_map)
     keep = slice(burn_in, len(all_weeks))
     all_model_weeks = list(model_weeks) + [forecast_week]
