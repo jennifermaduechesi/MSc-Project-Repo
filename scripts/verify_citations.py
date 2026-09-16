@@ -38,7 +38,8 @@ for f in REF_FILES:
     for ln in (D / f).read_text().split("\n"):
         s = ln.strip()
         if not s or s.startswith("#"): continue
-        m = re.match(r"^([A-Z][^(]{2,180}?)\s*\((\d{4}[a-z]?)\)", s)
+        # Same reason as in build_reference_list.py: particles and non-ASCII capitals.
+        m = re.match(r"^((?:[^\Wa-z\d_]|(?:d[aeiou]|van|von|del|della|dos|la|le|ten|ter|bin|al)\s)[^(]{2,180}?)\s*\((\d{4}[a-z]?)\)", s)
         if m:
             entries.append({"authors": m.group(1).strip(), "year": m.group(2),
                             "raw": s, "file": f, "surnames": surnames(m.group(1))})

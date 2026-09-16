@@ -130,6 +130,46 @@ def _flush_table(document, buffer: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------- build
+def build_references(source: Path, out_path: Path) -> None:
+    """Set a reference list: hanging indent, double spaced, no first line indent.
+
+    APA 6 section 6.22 sets the hanging indent at half an inch. Everything else follows
+    the Pan-Atlantic template, so the list sits with the chapters without adjustment.
+    """
+    document = Document()
+    _style(document)
+    for line in source.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# "):
+            paragraph = document.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _set_spacing(paragraph, DOUBLE)
+            run = paragraph.add_run(stripped[2:].upper())
+            run.bold = True
+            run.font.name, run.font.size = "Times New Roman", Pt(14)
+            continue
+        paragraph = document.add_paragraph()
+        _set_spacing(paragraph, DOUBLE)
+        # A reference entry hangs; the explanatory notes above the list do not. A note can
+        # mention a work by author and year, so matching the entry shape is not enough:
+        # a real entry names its authors with initials or is an organisation written as
+        # a sentence.
+        entry = re.match(r"^(?P<authors>(?:[^\Wa-z\d_]|"
+                         r"(?:d[aeiou]|van|von|del|della|dos|la|le|ten|ter)\s)[^(]{2,220}?)"
+                         r"\s*\((?:\d{4}[a-z]?|n\.d\.)\)", stripped)
+        if entry and (re.search(r",\s*[A-Z]\.", entry.group("authors"))
+                      or entry.group("authors").rstrip().endswith(".")):
+            paragraph.paragraph_format.left_indent = INDENT
+            paragraph.paragraph_format.first_line_indent = -INDENT
+        _runs(paragraph, stripped)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    document.save(out_path)
+    print(f"wrote {out_path} ({len(document.paragraphs)} paragraphs)")
+
+
 def build(source: Path, out_path: Path) -> None:
     document = Document()
     _style(document)
@@ -209,7 +249,11 @@ def build(source: Path, out_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    build(Path(sys.argv[1]), Path(sys.argv[2]))
+    args = [a for a in sys.argv[1:] if a != "--references"]
+    if "--references" in sys.argv:
+        build_references(Path(args[0]), Path(args[1]))
+    else:
+        build(Path(args[0]), Path(args[1]))
 
 
 # Kept in the repository rather than in a scratch directory, because an earlier copy was
