@@ -190,19 +190,25 @@ server <- function(input, output, session) {
       div(class = paste("metric", cls),
           div(class = "value", value), div(class = "caption", caption))
     }
-    realised <- function(tier) {
-      r <- s$realised_rate[s$band == tier]
-      if (!length(r) || is.na(r)) return("")
-      sprintf("about 1 in %.0f recorded an event", 1 / r)
+    hit_rate <- function(tiers) {
+      rows <- s[s$band %in% tiers, ]
+      if (!nrow(rows) || all(is.na(rows$realised_rate))) return("")
+      # Pool over the tiers the card counts, weighting each by the areas it holds in an
+      # ordinary week. A card covering three tiers has to quote the rate for all three,
+      # not for whichever one it happens to name.
+      r <- sum(rows$areas_per_week * rows$realised_rate) / sum(rows$areas_per_week)
+      paste(if (r < 0.1) sprintf("%.1f%%", 100 * r) else sprintf("%.0f%%", 100 * r),
+            "recorded an event")
     }
     tagList(
-      metric(sum(d$band == "Severe"), paste("severe.", realised("Severe")), "metric-severe"),
-      metric(sum(d$band == "High"), paste("high.", realised("High")), "metric-high"),
+      metric(sum(d$band == "Severe"), paste("severe.", hit_rate("Severe")), "metric-severe"),
+      metric(sum(d$band == "High"), paste("high.", hit_rate("High")), "metric-high"),
       metric(sum(d$band %in% c("Severe", "High", "Elevated")),
-             paste("elevated or above.", realised("Elevated")), "metric-total"),
+             paste("elevated or above.", hit_rate(c("Severe", "High", "Elevated"))),
+             "metric-total"),
       div(class = "footnote",
           sprintf("The remaining %d areas are Low, where %s.",
-                  sum(d$band == "Low"), realised("Low")))
+                  sum(d$band == "Low"), hit_rate("Low")))
     )
   })
 
@@ -281,8 +287,9 @@ server <- function(input, output, session) {
        area-week. It is not a verdict on the area.</p>",
       100 * a$probability, input$horizon, pill(a$band), a$rank, meta$areas,
       if (length(r) && !is.na(r))
-        sprintf("Across the test years, about one area-week in %.0f in this tier
-                 recorded an event.", 1 / r) else ""))
+        sprintf("Across the test years, %s of area-weeks in this tier recorded an event.",
+                if (r < 0.1) sprintf("%.1f%%", 100 * r) else sprintf("%.0f%%", 100 * r))
+      else ""))
   })
 
   output$drivers <- renderUI({
@@ -343,7 +350,7 @@ server <- function(input, output, session) {
   })
 
   output$closing_note <- renderUI({
-    s <- stats_now()
+    s <- stats_now(); info <- info_now()
     low <- s$share_of_events[s$band == "Low"]
     HTML(sprintf(
       "Probabilities are calibrated over a %s day horizon and are an aid to prioritisation,
@@ -352,10 +359,14 @@ server <- function(input, output, session) {
        placed in the Low tier. Tier boundaries are multiples of the base rate of the window
        shown, so a tier carries the same meaning at seven days as at twenty-eight. The
        measured rates beside each tier come from the calibrated linear member, because the
-       comparison across windows holds the model fixed; the probabilities come from the
-       full ensemble.",
+       comparison across windows holds the model fixed, while the probabilities come from
+       the full ensemble. Those rates were measured in test weeks whose base rate was %.4f.
+       The weeks anchoring this forecast sit at %.4f, a %s recording period, so read them
+       as the ordering a tier implies rather than as a rate to expect this week.",
       input$horizon,
-      if (length(low) && !is.na(low)) sprintf("%.1f per cent", 100 * low) else "a large share"))
+      if (length(low) && !is.na(low)) sprintf("%.1f per cent", 100 * low) else "a large share",
+      s$anchor_rate[1], info$anchor_rate,
+      if (info$anchor_rate < s$anchor_rate[1]) "quieter" else "busier"))
   })
 }
 
