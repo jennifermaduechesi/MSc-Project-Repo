@@ -157,8 +157,15 @@ def fit_stack(train, forecast_row, features, gnn):
     inner_end = n_train_weeks - ANCHOR_WEEKS
     meta_x["stgnn"] = fit_predict_gnn(gx, gy, edge_index, inner_end,
                                       range(inner_end, n_train_weeks), 7).reshape(-1)
+    # The recurrence carries a hidden state forward one week at a time, so it has to be
+    # walked through every week between the end of training and the forecast week rather
+    # than jumped straight to it. At a four-week horizon the last three completed weeks
+    # carry no settled label and so are excluded from training, but their features are
+    # known and the state must still pass through them. Feeding only the forecast index
+    # would silently drop them from the network's memory.
+    walk = range(n_train_weeks, forecast_index + 1)
     fore_x["stgnn"] = fit_predict_gnn(gx, gy, edge_index, n_train_weeks,
-                                      [forecast_index], 7).reshape(-1)
+                                      walk, 7)[-1].reshape(-1)
 
     meta = LogisticRegression(max_iter=2000)
     meta.fit(np.column_stack([logit(meta_x[k]) for k in names]),
