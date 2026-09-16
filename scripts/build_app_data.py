@@ -242,8 +242,44 @@ def main() -> int:
         # filled with zero, exactly as in section 3.7.
         usable = [w for w in model_weeks[:len(model_weeks) - (horizon - 1)]]
         train = frame[frame.week.isin(usable)].reset_index(drop=True)
-        anchor_window = usable[-ANCHOR_WEEKS:]
+        # The anchor has to describe the same recording regime as the week being
+        # forecast, not merely the weeks nearest to it.
+        #
+        # Section 3.4 records that the general incident log stops on 31 December 2025,
+        # so every week after that is recorded by one file where earlier weeks had two.
+        # A plain 52-week window straddles that boundary: at the forecast week it mixes
+        # 22 dual-source weeks with 30 single-source ones and returns 0.0325, against
+        # 0.0137 for the single-source weeks alone, a factor of 2.37. The model
+        # meanwhile conditions on `cov_sources` and correctly predicts what will be
+        # *recorded* under single-source coverage, so banding those predictions against
+        # a partly dual-source rate compares two different things and empties the upper
+        # bands. On the first build it left one area in Severe and two in High.
+        #
+        # The anchor is therefore taken from the most recent *contiguous* run of weeks
+        # sharing the forecast week's coverage value, still capped at 52. This is the
+        # same principle section 3.8 states, which is that the anchor should say what is
+        # normal now, applied to a panel where what counts as normal changed partway
+        # through.
+        #
+        # Contiguity matters and the first attempt at this fix got it wrong. Collecting
+        # every week at this coverage reaches back past the dual-source era into 2020,
+        # when the specialist file recorded far less, and produced an anchor window
+        # running from 2020-07-27 to 2026-07-27. Two periods can share a coverage count
+        # and nothing else.
+        forecast_coverage = float(forecast["cov_sources"].iloc[0])
+        coverage_by_week = (frame.drop_duplicates("week")
+                            .set_index("week")["cov_sources"].astype(float))
+        run: list = []
+        for week in reversed(list(usable)):
+            if coverage_by_week.get(week) != forecast_coverage:
+                break
+            run.append(week)
+        run.reverse()
+        anchor_window = (run or list(usable))[-ANCHOR_WEEKS:]
         anchor = float(frame.loc[frame.week.isin(anchor_window), "y"].mean())
+        print(f"  {horizon * 7:>2}d anchor from {len(anchor_window)} weeks at coverage "
+              f"{forecast_coverage:.0f} ({anchor_window[0].date()} to "
+              f"{anchor_window[-1].date()}): {anchor:.4f}")
 
         gy = torch.from_numpy(labels.astype(np.float32).T)
         n_train_weeks = burn_in + len(usable)
@@ -265,6 +301,10 @@ def main() -> int:
         rows.append(block)
         summary[str(days)] = {
             "anchor_rate": anchor,
+            "anchor_weeks": len(anchor_window),
+            "anchor_coverage": forecast_coverage,
+            "anchor_from": str(anchor_window[0].date()),
+            "anchor_to": str(anchor_window[-1].date()),
             "cuts": {"Elevated": MULTIPLES[2] * anchor, "High": MULTIPLES[1] * anchor,
                      "Severe": MULTIPLES[0] * anchor},
             "band_counts": {b: int((band == b).sum()) for b in
