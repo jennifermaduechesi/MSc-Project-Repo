@@ -41,11 +41,15 @@ BAND_TEXT <- c(Severe = "#FFFFFF", High = "#3A1F10",
 states <- sort(unique(forecast$state))
 
 # --------------------------------------------------------------------- theme
+# A system font stack rather than font_google(). Fetching a web font at start-up makes
+# the application's first load depend on an outbound request, which hangs where that
+# request is blocked and adds a failure mode on deployment for no benefit the reader
+# would notice.
+CLAY_FONT <- c("Nunito", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif")
 clay <- bs_theme(
   version = 5,
   bg = "#EEF1F6", fg = "#25303F",
-  primary = "#5B6E8C", base_font = font_google("Nunito"),
-  heading_font = font_google("Nunito")
+  primary = "#5B6E8C", base_font = CLAY_FONT, heading_font = CLAY_FONT
 )
 
 CLAY_CSS <- "
@@ -123,9 +127,10 @@ ui <- page_sidebar(
         col_widths = c(5, 7),
         div(class = "clay", h5("How the bands fill at each window"), DTOutput("band_compare")),
         div(class = "clay", h5("Areas whose band changes with the window"),
-            div(class = "muted", paste(
-              "An area that is Low at seven days and High at twenty-eight is one where",
-              "the evidence points to elevated risk, but not imminently.")),
+            div(class = "muted", style = "margin-bottom:14px;",
+                paste("An area that is Low at seven days and High at twenty-eight is",
+                      "one where the evidence points to elevated risk, but not",
+                      "imminently.")),
             DTOutput("shift_table"))
       )
     ),
@@ -147,7 +152,7 @@ server <- function(input, output, session) {
 
   updateSelectizeInput(session, "area",
                        choices = sort(unique(paste0(forecast$lga, ", ", forecast$state))),
-                       server = TRUE)
+                       selected = "", server = TRUE)
 
   current <- reactive({
     forecast |>
@@ -166,8 +171,13 @@ server <- function(input, output, session) {
     band_stats |> filter(horizon_days == as.numeric(input$horizon))
   })
 
+  info_now <- reactive({
+    meta[[as.character(input$horizon)]]
+  })
+
   output$band_summary <- renderUI({
     s <- stats_now()
+    info <- info_now()
     rows <- lapply(BANDS, function(b) {
       row <- s |> filter(band == b)
       n <- current() |> filter(band == b) |> nrow()
@@ -181,9 +191,14 @@ server <- function(input, output, session) {
     })
     tagList(h5("Bands this week"), rows,
             div(class = "muted",
-                HTML(sprintf("Boundaries sit at 2, 4 and 8 times the base rate of the
-                             previous 52 weeks, which is %.4f at this window.",
-                             s$anchor_rate[1]))))
+                HTML(sprintf(paste("Boundaries sit at 2, 4 and 8 times the base rate of",
+                                   "the %d completed weeks before the forecast that",
+                                   "share its recording coverage, which is %.4f at this",
+                                   "window. The window stops at the coverage change of",
+                                   "1 January 2026 rather than running back a fixed 52",
+                                   "weeks, because the rate either side of it is not",
+                                   "the same quantity."),
+                             info$anchor_weeks, s$anchor_rate[1]))))
   })
 
   output$map <- renderLeaflet({

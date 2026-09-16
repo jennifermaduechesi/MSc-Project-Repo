@@ -109,6 +109,26 @@ READABLE = {
 }
 
 
+# Features measuring nearly the same thing are reported together, because their separate
+# weights are not interpretable even though their sum is.
+#
+# `own_rate_longrun` is `own_events_cum` divided by weeks elapsed, and the two correlate
+# at 0.98 across the panel. A penalised linear model is free to split a large positive and
+# a large negative between them without changing the total, and it does: in 641 of the 774
+# areas both land in the top six, with magnitudes averaging 1.34 that combine to -0.09.
+# Shown separately they read as "events here since 2011 lowers risk", which is not what
+# the model means and is not something anyone should act on. Grouped, they read as one
+# figure for how much this area has recorded over time.
+DRIVER_FAMILY = {
+    "own_events_cum": "history", "own_rate_longrun": "history", "own_ever": "history",
+    "cal_sin": "season", "cal_cos": "season",
+}
+FAMILY_LABEL = {
+    "history": "how much this area has recorded over the years",
+    "season": "time of year",
+}
+
+
 def recalibrate_to_regime(probability: np.ndarray, target: float) -> tuple[np.ndarray, float]:
     """Shift predictions on the log-odds scale so their mean matches the recent rate.
 
@@ -373,15 +393,24 @@ def main() -> int:
         coefficients = pipeline.named_steps["logisticregression"].coef_[0]
         x = forecast[features].to_numpy(np.float32)
         contribution = (x - scaler.mean_) / np.sqrt(scaler.var_) * coefficients
+        groups = [DRIVER_FAMILY.get(f, f) for f in features]
+        distinct = list(dict.fromkeys(groups))
+        membership = {g: [j for j, gg in enumerate(groups) if gg == g] for g in distinct}
         for i, pcode in enumerate(forecast["pcode"]):
-            top = np.argsort(-np.abs(contribution[i]))[:TOP_DRIVERS]
-            for j in top:
+            totals = {g: float(contribution[i, idx].sum()) for g, idx in membership.items()}
+            top = sorted(totals, key=lambda g: -abs(totals[g]))[:TOP_DRIVERS]
+            for g in top:
+                idx = membership[g]
+                # A group with one member reports that member's value. A group with
+                # several reports none, because there is no single quantity to report,
+                # and inventing one would be worse than leaving the column blank.
                 driver_rows.append({
                     "pcode": pcode, "horizon_days": days,
-                    "feature": features[j],
-                    "label": READABLE.get(features[j], features[j]),
-                    "value": float(x[i, j]),
-                    "contribution": float(contribution[i, j]),
+                    "feature": g,
+                    "label": FAMILY_LABEL.get(g, READABLE.get(g, g)),
+                    "value": float(x[i, idx[0]]) if len(idx) == 1 else float("nan"),
+                    "contribution": totals[g],
+                    "n_features": len(idx),
                 })
 
     scored = pd.concat(rows, ignore_index=True)
