@@ -1,221 +1,212 @@
-# Seven, fourteen and twenty-eight day violence risk, Nigerian Local Government Areas.
+# Seven, fourteen and twenty-eight day violence risk, Nigerian local government areas.
 #
-# The interface specified in section 3.8 of the dissertation. It reads a scored table
-# produced by scripts/build_app_data.py and fits nothing itself, which keeps the deployed
-# artefact from drifting away from the models the dissertation evaluates.
+# The interface specified in section 3.8 of the dissertation, built to the same layout,
+# palette and typography as the deployed version of this project's earlier system, so the
+# two read as one piece of work. The stylesheet in www/style.css is that system's own,
+# carried over unchanged. Two things differ. The data is this project's corpus, and the
+# forecast is offered over three windows rather than one.
 #
-# Three design rules from section 3.8 are enforced here rather than stated in a caption.
-# No band is rendered green and no label anywhere uses the words safe, clear or secure.
-# Every area is reachable by direct lookup, so nothing is absent from which a user could
-# infer an assessment. And the realised event rate for each band is displayed beside the
-# band, so the reader sees what Low actually means rather than guessing.
+# The application fits nothing. It reads a scored table produced by
+# scripts/build_app_data.py, which is what keeps the deployed artefact from drifting away
+# from the models the dissertation evaluates.
+#
+# Three rules from section 3.8 are enforced here rather than stated in a caption. No tier
+# is rendered green and no label uses the words safe, clear or secure. Every area is
+# reachable, by the ranked list, by the map and by direct lookup, so nothing is absent
+# from which a reader could infer an assessment. And each tier carries its measured event
+# rate beside it.
 
 library(shiny)
-library(bslib)
 library(leaflet)
 library(DT)
 library(dplyr)
 library(jsonlite)
 library(readr)
 library(sf)
+library(tidyr)
 
-# ----------------------------------------------------------------------- data
 DATA <- "data"
 forecast   <- read_csv(file.path(DATA, "forecast.csv"), show_col_types = FALSE)
 drivers    <- read_csv(file.path(DATA, "drivers.csv"), show_col_types = FALSE)
 incidents  <- read_csv(file.path(DATA, "recent_incidents.csv"), show_col_types = FALSE)
-history    <- read_csv(file.path(DATA, "history.csv"), show_col_types = FALSE)
+band_stats <- read_csv(file.path(DATA, "band_stats.csv"), show_col_types = FALSE)
 meta       <- fromJSON(file.path(DATA, "meta.json"))
 shapes     <- st_read(file.path(DATA, "lga.geojson"), quiet = TRUE)
-band_stats <- read_csv(file.path(DATA, "band_stats.csv"), show_col_types = FALSE)
 
+TIERS <- c("Low", "Elevated", "High", "Severe")
+TIER_FILL <- c(Low = "#4575B4", Elevated = "#91BFDB",
+               High = "#FC8D59", Severe = "#D73027")
 HORIZONS <- c("7 days" = 7, "14 days" = 14, "28 days" = 28)
-BANDS <- c("Severe", "High", "Elevated", "Low")
-
-# No green anywhere. A green band would read as an assurance the model cannot give.
-BAND_FILL <- c(Severe = "#C1362F", High = "#E8894A",
-               Elevated = "#F2C879", Low = "#B8C4D9")
-BAND_TEXT <- c(Severe = "#FFFFFF", High = "#3A1F10",
-               Elevated = "#4A3A12", Low = "#2B3240")
 
 states <- sort(unique(forecast$state))
+areas_all <- sort(unique(paste0(forecast$lga, ", ", forecast$state)))
 
-# --------------------------------------------------------------------- theme
-# A system font stack rather than font_google(). Fetching a web font at start-up makes
-# the application's first load depend on an outbound request, which hangs where that
-# request is blocked and adds a failure mode on deployment for no benefit the reader
-# would notice.
-CLAY_FONT <- c("Nunito", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif")
-clay <- bs_theme(
-  version = 5,
-  bg = "#EEF1F6", fg = "#25303F",
-  primary = "#5B6E8C", base_font = CLAY_FONT, heading_font = CLAY_FONT
-)
-
-CLAY_CSS <- "
-.clay { background:#F7F9FC; border-radius:22px; padding:18px 20px;
-        box-shadow: 8px 8px 18px #D3DAE6, -8px -8px 18px #FFFFFF; margin-bottom:18px; }
-.clay-tight { padding:12px 16px; }
-.band-pill { display:inline-block; padding:5px 14px; border-radius:14px;
-             font-weight:700; font-size:0.95rem; }
-.bignum { font-size:2.6rem; font-weight:800; line-height:1.05; }
-.muted  { color:#66748A; font-size:0.88rem; }
-.warn   { background:#FDF3E7; border-left:5px solid #E8894A; border-radius:14px;
-          padding:12px 16px; margin-bottom:16px; font-size:0.92rem; }
-.leaflet-container { border-radius:18px; }
-"
-
-pill <- function(band) {
-  sprintf('<span class="band-pill" style="background:%s;color:%s">%s</span>',
-          BAND_FILL[[band]], BAND_TEXT[[band]], band)
+pill <- function(tier) {
+  sprintf('<span class="pill pill-%s">%s</span>', tier, tier)
 }
 
-# ------------------------------------------------------------------------- ui
-ui <- page_sidebar(
-  theme = clay,
-  title = "Seven to twenty-eight day violence risk, Nigerian Local Government Areas",
-  tags$head(tags$style(HTML(CLAY_CSS))),
-
-  sidebar = sidebar(
-    width = 300,
-    radioButtons("horizon", "Forecast window",
-                 choices = HORIZONS, selected = 7),
-    helpText(HTML(paste0(
-      "Opens on seven days. The evaluation in the methodology chapter finds the ",
-      "seven-day window best on every measure that is comparable across horizons. ",
-      "A longer window scores higher on raw average precision only because the ",
-      "target becomes commoner."))),
-    hr(),
-    selectInput("state", "State", choices = c("All states", states)),
-    checkboxGroupInput("bands", "Risk band", choices = BANDS, selected = BANDS),
-    hr(),
-    selectizeInput("area", "Look up any area", choices = NULL,
-                   options = list(placeholder = "Type an area name")),
-    helpText(HTML(paste0("Every one of the ", meta$areas,
-                         " areas can be looked up, including those in the Low band."))),
-    hr(),
-    div(class = "muted",
-        HTML(paste0("Forecast week beginning <b>", meta$forecast_week, "</b>.<br>",
-                    "Last completed week ", meta$last_completed_week, ".")))
+# ------------------------------------------------------------------------------ ui
+ui <- fluidPage(
+  tags$head(
+    tags$link(rel = "stylesheet", type = "text/css", href = "style.css"),
+    tags$title("Violence risk, Nigerian local government areas")
   ),
 
-  navset_card_tab(
-    nav_panel(
-      "Forecast",
-      div(class = "warn", HTML(paste0(
-        "<b>This is a prioritisation of finite patrol capacity, not a forecast of where ",
-        "events will occur.</b> An area in the Low band has not been assessed as safe. ",
-        "Across the five test years, 41.9 per cent of all recorded events happened in ",
-        "areas this system had placed in the Low band, and in the weakest year that ",
-        "share reached 68.5 per cent."))),
-      layout_columns(
-        col_widths = c(7, 5),
-        div(class = "clay", leafletOutput("map", height = 560)),
-        div(
-          div(class = "clay clay-tight", uiOutput("band_summary")),
-          div(class = "clay", h5("Ranked areas"),
-              div(class = "muted", "Ordered by probability. The rank is national, not within the filter."),
-              DTOutput("ranked"))
-        )
-      )
-    ),
-
-    nav_panel(
-      "Compare horizons",
-      div(class = "clay", htmlOutput("compare_intro")),
-      layout_columns(
-        col_widths = c(5, 7),
-        div(class = "clay", h5("How the bands fill at each window"), DTOutput("band_compare")),
-        div(class = "clay", h5("Areas whose band changes with the window"),
-            div(class = "muted", style = "margin-bottom:14px;",
-                paste("An area that is Low at seven days and High at twenty-eight is",
-                      "one where the evidence points to elevated risk, but not",
-                      "imminently.")),
-            DTOutput("shift_table"))
-      )
-    ),
-
-    nav_panel(
-      "Area detail",
-      uiOutput("detail")
-    ),
-
-    nav_panel(
-      "How to read this",
-      div(class = "clay", htmlOutput("method"))
+  # The cover sits in the initial HTML so it is on screen from the first paint, for the
+  # reason the stylesheet gives: a cold instance spends several seconds waking before it
+  # can send anything, and the page would otherwise sit blank.
+  tags$div(
+    id = "app-loading",
+    tags$div(
+      class = "loading-card",
+      tags$div(class = "loading-title", "Violence risk"),
+      tags$div(class = "loading-note", "Scoring 774 local government areas"),
+      tags$div(class = "loading-bar", tags$div(class = "loading-bar-fill")),
+      tags$div(class = "loading-hint",
+               "The first visit of the day wakes the server, which takes a few seconds.")
     )
-  )
+  ),
+  tags$script(HTML(
+    "$(document).on('shiny:idle', function(){
+       var c = document.getElementById('app-loading');
+       if (c && !c.classList.contains('is-hidden')) {
+         c.classList.add('is-hidden');
+         setTimeout(function(){ c.style.display = 'none'; }, 400);
+       }
+     });")),
+
+  h2("Seven, fourteen and twenty-eight day violence risk, Nigerian local government areas"),
+
+  fluidRow(
+    column(
+      3,
+      div(
+        class = "well",
+        radioButtons("horizon", "Forecast window", choices = HORIZONS,
+                     selected = 7, inline = TRUE),
+        div(class = "footnote", style = "margin-top:-6px;margin-bottom:14px;",
+            paste("Seven days is the window the system is built around and the one it",
+                  "scores best on once the base rate is taken into account.")),
+        selectInput("state", "State", choices = c("All states", states)),
+        checkboxGroupInput("tiers", "Risk tier", choices = TIERS, selected = TIERS),
+        sliderInput("top_n", "Areas listed", min = 10, max = 100, value = 25, step = 5),
+        selectizeInput("area", "Look up any area", choices = NULL,
+                       options = list(placeholder = "Type an area name")),
+        tags$hr(),
+        uiOutput("run_metadata")
+      ),
+      uiOutput("headline_metrics")
+    ),
+
+    column(
+      6,
+      div(class = "map-frame", leafletOutput("map", height = 520)),
+      div(class = "footnote",
+          "Blue marks the lowest risk and red the most severe. Every area is shaded, because
+           every area is scored."),
+      tags$hr(),
+      h4("Ranked areas"),
+      DTOutput("table"),
+      tags$hr(),
+      h4("How the three windows compare"),
+      div(class = "footnote", style = "margin-bottom:10px;",
+          "An area that is Low at seven days and High at twenty-eight is one where the
+           evidence points to risk that is building rather than imminent."),
+      DTOutput("shift_table")
+    ),
+
+    column(
+      3,
+      h4(textOutput("selected_title")),
+      uiOutput("selected_summary"),
+      h4("Why this score"),
+      uiOutput("drivers"),
+      h4("Actors recorded here"),
+      uiOutput("actors"),
+      h4("Recent incidents"),
+      uiOutput("incidents")
+    )
+  ),
+
+  tags$hr(),
+  fluidRow(column(12, div(class = "footnote", uiOutput("closing_note"))))
 )
 
-# --------------------------------------------------------------------- server
+# -------------------------------------------------------------------------- server
 server <- function(input, output, session) {
 
-  updateSelectizeInput(session, "area",
-                       choices = sort(unique(paste0(forecast$lga, ", ", forecast$state))),
-                       selected = "", server = TRUE)
+  updateSelectizeInput(session, "area", choices = areas_all, selected = "", server = TRUE)
 
   current <- reactive({
-    forecast |>
-      filter(horizon_days == as.numeric(input$horizon)) |>
-      arrange(rank)
-  })
-
-  filtered <- reactive({
-    out <- current()
-    if (input$state != "All states") out <- out |> filter(state == input$state)
-    if (length(input$bands)) out <- out |> filter(band %in% input$bands)
-    out
+    forecast |> filter(horizon_days == as.numeric(input$horizon)) |> arrange(rank)
   })
 
   stats_now <- reactive({
     band_stats |> filter(horizon_days == as.numeric(input$horizon))
   })
 
-  info_now <- reactive({
-    meta[[as.character(input$horizon)]]
+  info_now <- reactive(meta[[as.character(input$horizon)]])
+
+  filtered <- reactive({
+    out <- current()
+    if (input$state != "All states") out <- out |> filter(state == input$state)
+    if (length(input$tiers)) out <- out |> filter(band %in% input$tiers)
+    out
   })
 
-  output$band_summary <- renderUI({
-    s <- stats_now()
+  chosen <- reactiveVal(NULL)
+  observeEvent(input$area, {
+    if (!is.null(input$area) && nzchar(input$area)) {
+      parts <- strsplit(input$area, ", ", fixed = TRUE)[[1]]
+      hit <- current() |> filter(lga == parts[1], state == parts[2]) |> slice(1)
+      if (nrow(hit)) chosen(hit$pcode)
+    }
+  }, ignoreInit = TRUE)
+  observeEvent(input$map_shape_click, chosen(input$map_shape_click$id))
+  observeEvent(input$table_rows_selected, {
+    rows <- filtered()
+    if (length(input$table_rows_selected)) chosen(rows$pcode[input$table_rows_selected])
+  })
+
+  selected <- reactive({
+    if (is.null(chosen())) return(current() |> slice(1))
+    current() |> filter(pcode == chosen()) |> slice(1)
+  })
+
+  # ------------------------------------------------------------------- left column
+  output$run_metadata <- renderUI({
     info <- info_now()
-    rows <- lapply(BANDS, function(b) {
-      row <- s |> filter(band == b)
-      n <- current() |> filter(band == b) |> nrow()
-      realised <- if (nrow(row) && !is.na(row$realised_rate)) {
-        sprintf("about 1 area-week in %.0f recorded an event", 1 / row$realised_rate)
-      } else "not separately validated at this window"
-      div(style = "margin-bottom:9px",
-          HTML(pill(b)),
-          span(style = "margin-left:10px; font-weight:700", n, "areas"),
-          div(class = "muted", style = "margin-left:2px", realised))
-    })
-    severe_thin <- nrow(s) && !is.na(s$areas_per_week[s$band == "Severe"][1]) &&
-      s$areas_per_week[s$band == "Severe"][1] < 1
-    tagList(h5("Bands this week"), rows,
-            if (isTRUE(severe_thin))
-              div(class = "muted", style = "margin-bottom:8px",
-                  HTML(paste("At this window the Severe cut is eight times a base rate",
-                             "of roughly", sprintf("%.2f", s$anchor_rate[1]),
-                             ", which asks for a probability near certainty. Almost no",
-                             "area reaches it, so read High as the top band here."))),
-            div(class = "muted",
-                HTML(sprintf(paste("Boundaries sit at 2, 4 and 8 times the base rate of",
-                                   "the %d completed weeks before the forecast that",
-                                   "share its recording coverage, which is %.4f at this",
-                                   "window. The window stops at the coverage change of",
-                                   "1 January 2026 rather than running back a fixed 52",
-                                   "weeks, because the rate either side of it is not",
-                                   "the same quantity."),
-                             info$anchor_weeks, s$anchor_rate[1]))),
-            div(class = "muted", style = "margin-top:6px",
-                HTML(paste("Realised rates are measured on the",
-                           "calibrated linear member across all three windows, because",
-                           "the horizon comparison holds the model fixed so that a",
-                           "change between windows is a change of window and not of",
-                           "algorithm. The probabilities above them come from the full",
-                           "ensemble."))))
+    HTML(sprintf(
+      "<div class='footnote'>Forecast week beginning <b>%s</b>.<br>
+       Last completed week %s.<br>
+       Tier boundaries sit at 2, 4 and 8 times a base rate of %.4f, measured over the
+       %d completed weeks before the forecast that share its recording coverage.</div>",
+      meta$forecast_week, meta$last_completed_week, info$anchor_rate, info$anchor_weeks))
   })
 
+  output$headline_metrics <- renderUI({
+    d <- current(); s <- stats_now()
+    metric <- function(value, caption, cls) {
+      div(class = paste("metric", cls),
+          div(class = "value", value), div(class = "caption", caption))
+    }
+    realised <- function(tier) {
+      r <- s$realised_rate[s$band == tier]
+      if (!length(r) || is.na(r)) return("")
+      sprintf("about 1 in %.0f recorded an event", 1 / r)
+    }
+    tagList(
+      metric(sum(d$band == "Severe"), paste("severe.", realised("Severe")), "metric-severe"),
+      metric(sum(d$band == "High"), paste("high.", realised("High")), "metric-high"),
+      metric(sum(d$band %in% c("Severe", "High", "Elevated")),
+             paste("elevated or above.", realised("Elevated")), "metric-total"),
+      div(class = "footnote",
+          sprintf("The remaining %d areas are Low, where %s.",
+                  sum(d$band == "Low"), realised("Low")))
+    )
+  })
+
+  # -------------------------------------------------------------------------- map
   output$map <- renderLeaflet({
     leaflet() |>
       addProviderTiles(providers$CartoDB.PositronNoLabels) |>
@@ -224,12 +215,9 @@ server <- function(input, output, session) {
 
   observe({
     keep <- filtered()
-    if (nrow(keep) == 0) {
-      leafletProxy("map") |> clearShapes()
-      return(invisible(NULL))
-    }
-    shp <- shapes[shapes$pcode %in% keep$pcode, ]
-    shp <- merge(shp, keep[, c("pcode", "band", "probability", "rank", "lga", "state")],
+    if (nrow(keep) == 0) { leafletProxy("map") |> clearShapes(); return(invisible(NULL)) }
+    shp <- merge(shapes[shapes$pcode %in% keep$pcode, ],
+                 keep[, c("pcode", "band", "probability", "rank", "lga", "state")],
                  by = "pcode", all.x = TRUE)
     labels <- sprintf(
       "<b>%s</b><br>%s<br>%s &middot; rank %d of %d<br>%.1f%% chance within %s days",
@@ -238,189 +226,136 @@ server <- function(input, output, session) {
     leafletProxy("map", data = shp) |>
       clearShapes() |>
       addPolygons(
-        layerId = ~pcode,
-        weight = 0.5, color = "#7C8899", opacity = 1,
-        fillColor = unname(BAND_FILL[shp$band]), fillOpacity = 0.85,
-        highlightOptions = highlightOptions(weight = 2, color = "#25303F",
+        layerId = ~pcode, weight = 0.4, color = "#FFFFFF", opacity = 1,
+        fillColor = unname(TIER_FILL[shp$band]), fillOpacity = 0.85,
+        highlightOptions = highlightOptions(weight = 2, color = "#14161A",
                                             bringToFront = TRUE),
-        label = lapply(labels, HTML))
+        label = lapply(labels, HTML),
+        labelOptions = labelOptions(className = "lga-tooltip", html = TRUE))
   })
 
-  output$ranked <- renderDT({
+  # ---------------------------------------------------------------- ranked areas
+  output$table <- renderDT({
     filtered() |>
-      transmute(Rank = rank, Area = lga, State = state, Band = band,
-                Probability = sprintf("%.1f%%", 100 * probability)) |>
-      datatable(rownames = FALSE, selection = "single",
-                options = list(pageLength = 12, dom = "tp", scrollX = TRUE)) |>
-      formatStyle("Band", backgroundColor = styleEqual(BANDS, unname(BAND_FILL[BANDS])),
-                  color = styleEqual(BANDS, unname(BAND_TEXT[BANDS])),
-                  fontWeight = "bold")
-  })
-
-  observeEvent(input$map_shape_click, {
-    hit <- forecast |> filter(pcode == input$map_shape_click$id) |> slice(1)
-    if (nrow(hit)) {
-      updateSelectizeInput(session, "area",
-                           selected = paste0(hit$lga, ", ", hit$state))
-    }
-  })
-
-  output$compare_intro <- renderUI({
-    HTML(paste0(
-      "<h5>Why three windows</h5><p>The seven-day window is the one the system is built ",
-      "around and the one it performs best on. The longer windows are shown because an ",
-      "area's position can change with the horizon, and that change is itself ",
-      "information. Each window is banded against its own base rate, which rises from ",
-      "roughly 0.036 at seven days to 0.113 at twenty-eight, so a band means the same ",
-      "thing at every window: this area is at least two, four or eight times the ",
-      "ordinary rate.</p>",
-      "<p class='muted'>Average precision rises with the window and lift over the base ",
-      "rate falls. A longer window is not a better forecast, it is an easier target.</p>"))
-  })
-
-  output$band_compare <- renderDT({
-    band_stats |>
-      mutate(Window = paste0(horizon_days, " days"),
-             Band = band,
-             `Areas per week` = round(areas_per_week, 1),
-             `Realised rate` = sprintf("%.3f", realised_rate),
-             `Share of events` = sprintf("%.1f%%", 100 * share_of_events),
-             `Base rate` = sprintf("%.4f", anchor_rate)) |>
-      select(Window, Band, `Areas per week`, `Realised rate`,
-             `Share of events`, `Base rate`) |>
-      datatable(rownames = FALSE, options = list(pageLength = 12, dom = "t"))
+      head(input$top_n) |>
+      transmute(Rank = rank, Area = lga, State = state,
+                Tier = pill(band), Probability = sprintf("%.1f%%", 100 * probability)) |>
+      datatable(rownames = FALSE, escape = FALSE, selection = "single",
+                options = list(pageLength = 12, dom = "tp", scrollX = TRUE,
+                               columnDefs = list(list(className = "dt-right",
+                                                      targets = c(0, 4)))))
   })
 
   output$shift_table <- renderDT({
     wide <- forecast |>
       select(pcode, lga, state, horizon_days, band, rank) |>
-      tidyr::pivot_wider(names_from = horizon_days,
-                         values_from = c(band, rank))
-    idx <- function(b) match(b, rev(BANDS))
+      pivot_wider(names_from = horizon_days, values_from = c(band, rank))
+    idx <- function(b) match(b, TIERS)
     wide |>
       filter(idx(band_7) != idx(band_28)) |>
-      mutate(Direction = ifelse(idx(band_28) > idx(band_7), "rises by 28 days",
-                                "falls by 28 days")) |>
+      mutate(Direction = ifelse(idx(band_28) > idx(band_7),
+                                "rises by 28 days", "falls by 28 days")) |>
       arrange(rank_7) |>
-      transmute(Area = lga, State = state, `7 days` = band_7, `14 days` = band_14,
-                `28 days` = band_28, `Rank at 7` = rank_7, `Rank at 28` = rank_28,
-                Direction) |>
-      datatable(rownames = FALSE, options = list(pageLength = 12, dom = "tp", scrollX = TRUE))
+      transmute(Area = lga, State = state,
+                `7 days` = pill(band_7), `14 days` = pill(band_14),
+                `28 days` = pill(band_28),
+                `Rank at 7` = rank_7, `Rank at 28` = rank_28, Direction) |>
+      datatable(rownames = FALSE, escape = FALSE, selection = "none",
+                options = list(pageLength = 8, dom = "tp", scrollX = TRUE))
   })
 
-  chosen <- reactive({
-    req(input$area)
-    parts <- strsplit(input$area, ", ", fixed = TRUE)[[1]]
-    current() |> filter(lga == parts[1], state == parts[2]) |> slice(1)
+  # ------------------------------------------------------------------ right column
+  output$selected_title <- renderText({
+    a <- selected(); if (!nrow(a)) return("")
+    paste0(a$lga, ", ", a$state)
   })
 
-  output$detail <- renderUI({
-    if (is.null(input$area) || input$area == "") {
-      return(div(class = "clay",
-                 h5("Look up an area"),
-                 p(paste("Use the box in the sidebar. Every area returns a probability",
-                         "and a band, including areas in the Low band. Nothing is",
-                         "withheld, so an area's absence from the ranked list carries",
-                         "no meaning."))))
-    }
-    a <- chosen()
-    if (nrow(a) == 0) return(div(class = "clay", "No area matched."))
+  output$selected_summary <- renderUI({
+    a <- selected(); if (!nrow(a)) return(NULL)
+    s <- stats_now(); r <- s$realised_rate[s$band == a$band]
+    HTML(sprintf(
+      "<div class='metric'><div class='value'>%.1f%%</div>
+       <div class='caption'>chance of at least one event within %s days</div></div>
+       <p>%s &middot; ranked %d of %d nationally.</p>
+       <p class='footnote'>%s A tier says how this area compares with an ordinary
+       area-week. It is not a verdict on the area.</p>",
+      100 * a$probability, input$horizon, pill(a$band), a$rank, meta$areas,
+      if (length(r) && !is.na(r))
+        sprintf("Across the test years, about one area-week in %.0f in this tier
+                 recorded an event.", 1 / r) else ""))
+  })
+
+  output$drivers <- renderUI({
+    a <- selected(); if (!nrow(a)) return(NULL)
     d <- drivers |>
       filter(pcode == a$pcode, horizon_days == as.numeric(input$horizon)) |>
       arrange(desc(abs(contribution)))
-    inc <- incidents |> filter(pcode == a$pcode)
-
-    tagList(
-      layout_columns(
-        col_widths = c(4, 8),
-        div(class = "clay",
-            div(class = "muted", a$state),
-            h4(a$lga),
-            div(class = "bignum", sprintf("%.1f%%", 100 * a$probability)),
-            div(class = "muted", sprintf("chance of at least one event in the next %s days",
-                                         input$horizon)),
-            br(), HTML(pill(a$band)),
-            div(class = "muted", style = "margin-top:10px",
-                sprintf("Ranked %d of %d nationally.", a$rank, meta$areas)),
-            hr(),
-            div(class = "muted",
-                HTML("A band is not a verdict on this area's safety. It says how this
-                      area compares with an ordinary area-week."))),
-        div(class = "clay",
-            h5("What the linear model is reading"),
-            div(class = "muted",
-                HTML(paste("These are the signed contributions of the penalised linear",
-                           "member of the ensemble, which decompose exactly on the",
-                           "log-odds scale. They explain that member's view, not the",
-                           "whole ensemble's. Producing a faithful decomposition of an",
-                           "ensemble containing a graph network is beyond what this",
-                           "study attempts."))),
-            br(),
-            DTOutput("driver_table"))
-      ),
-      div(class = "clay",
-          h5(sprintf("Recorded incidents here in the last 8 weeks (%d)", nrow(inc))),
-          if (nrow(inc) == 0)
-            div(class = "muted",
-                HTML("None recorded. That is a statement about the record, not about
-                      what happened."))
-          else DTOutput("incident_table"))
-    )
-  })
-
-  output$driver_table <- renderDT({
-    a <- chosen()
-    drivers |>
-      filter(pcode == a$pcode, horizon_days == as.numeric(input$horizon)) |>
-      arrange(desc(abs(contribution))) |>
-      transmute(Reading = label, Value = round(value, 3),
-                Direction = ifelse(contribution > 0, "raises risk", "lowers risk"),
-                Weight = round(contribution, 3)) |>
-      datatable(rownames = FALSE, options = list(dom = "t", pageLength = 10))
-  })
-
-  output$incident_table <- renderDT({
-    a <- chosen()
-    incidents |>
-      filter(pcode == a$pcode) |>
-      transmute(Date = date, Location = location, Killed = deaths,
-                Abducted = kidnapped, Group = perpetrator) |>
-      datatable(rownames = FALSE, options = list(dom = "tp", pageLength = 8, scrollX = TRUE))
-  })
-
-  output$method <- renderUI({
+    if (!nrow(d)) return(div(class = "footnote", "No drivers recorded for this area."))
+    rows <- paste0(
+      "<tr><td>", d$label, "</td><td>",
+      ifelse(is.na(d$value), "<span class='footnote'>grouped</span>",
+             formatC(d$value, format = "f", digits = 2)), "</td><td>",
+      ifelse(d$contribution > 0, "raises", "lowers"), "</td></tr>", collapse = "")
     HTML(paste0(
-      "<h5>What this is</h5>",
-      "<p>A weekly ranking of all ", meta$areas, " Nigerian Local Government Areas by the ",
-      "probability that at least one kidnapping or banditry event is recorded there in ",
-      "the window selected. It is built from an incident corpus compiled by Bulwark ",
-      "Intelligence and supplied for this study, and from official administrative ",
-      "boundaries.</p>",
-      "<h5>What the bands mean</h5>",
-      "<p>Boundaries are multiples of the base rate over the previous 52 completed weeks. ",
-      "Elevated is at least twice the ordinary rate, High at least four times, Severe at ",
-      "least eight. The anchor is recomputed for each window, so a band carries the same ",
-      "meaning at seven days as at twenty-eight.</p>",
-      "<p>A band may be empty. In one of the five test years no area anywhere reached ",
-      "eight times the recent rate, and the interface shows an empty Severe band rather ",
-      "than promoting the next areas to fill it. A display that always finds something ",
-      "severe teaches the people using it to ignore it.</p>",
-      "<h5>What it does not do</h5>",
-      "<p>It does not predict individual incidents. It does not attribute a forecast to ",
-      "a named armed group, because attribution in the record describes events that have ",
-      "already happened. It does not report probabilities to a precision the evaluation ",
-      "does not support.</p>",
-      "<h5>The limitation that matters most</h5>",
-      "<p>Across five years of held-out testing, 41.9 per cent of recorded events fell in ",
-      "areas banded Low, ranging from 29.9 per cent in the best year to 68.5 per cent in ",
-      "the worst. Low means the recorded evidence does not concentrate here this week. It ",
-      "does not mean nothing will happen. Roughly 95 per cent of areas hold their band ",
-      "from one week to the next, so most of what changes week to week is small.</p>",
-      "<p class='muted'>Model: stacked ensemble of a penalised logistic regression, a ",
-      "random forest, a gradient boosting ensemble and a recurrent graph network, ",
-      "combined by an unweighted logistic meta-learner on the log-odds scale. Scores ",
-      "generated ", meta$forecast_week, " from data complete to ",
-      meta$last_completed_week, ".</p>"))
+      "<div id='drivers'><table class='table'><thead><tr><th>Reading</th>",
+      "<th>Value</th><th>Effect</th></tr></thead><tbody>", rows, "</tbody></table></div>",
+      "<p class='footnote'>These are the signed contributions of the penalised linear
+       member of the ensemble, which decompose exactly on the log-odds scale. They
+       explain that member's view rather than the whole ensemble's.</p>
+       <p class='footnote'>Readings that measure nearly the same thing are grouped,
+       because their separate weights are not interpretable even though their sum is.
+       The windows that remain separate still overlap, since a four-week count contains
+       the two-week count inside it, and in a small number of areas two overlapping
+       readings point in opposite directions. Read the direction of the group rather
+       than of any single line.</p>"))
+  })
+
+  output$actors <- renderUI({
+    a <- selected(); if (!nrow(a)) return(NULL)
+    act <- incidents |>
+      filter(pcode == a$pcode, !is.na(perpetrator), nzchar(perpetrator)) |>
+      count(perpetrator, sort = TRUE)
+    if (!nrow(act))
+      return(div(class = "footnote",
+                 "No actor recorded here in the last eight weeks. That is a statement
+                  about the record, not about who is present."))
+    rows <- paste0("<tr><td>", act$perpetrator, "</td><td>", act$n, "</td></tr>",
+                   collapse = "")
+    HTML(paste0("<div id='actors'><table class='table'><thead><tr><th>Group</th>",
+                "<th>Incidents</th></tr></thead><tbody>", rows,
+                "</tbody></table></div>",
+                "<p class='footnote'>Attribution describes events already recorded. It is
+                 not carried into the forecast.</p>"))
+  })
+
+  output$incidents <- renderUI({
+    a <- selected(); if (!nrow(a)) return(NULL)
+    inc <- incidents |> filter(pcode == a$pcode) |> head(12)
+    if (!nrow(inc))
+      return(div(class = "footnote",
+                 "None recorded in the last eight weeks. That is a statement about the
+                  record, not about what happened."))
+    rows <- paste0("<tr><td>", inc$date, "</td><td>", inc$location, "</td><td>",
+                   inc$deaths, "</td><td>", inc$kidnapped, "</td></tr>", collapse = "")
+    HTML(paste0("<div id='incidents'><table class='table'><thead><tr><th>Date</th>",
+                "<th>Location</th><th>Killed</th><th>Taken</th></tr></thead><tbody>",
+                rows, "</tbody></table></div>"))
+  })
+
+  output$closing_note <- renderUI({
+    s <- stats_now()
+    low <- s$share_of_events[s$band == "Low"]
+    HTML(sprintf(
+      "Probabilities are calibrated over a %s day horizon and are an aid to prioritisation,
+       not a forecast of individual incidents. An area outside the list is not assessed as
+       safe: across the test years %s of all recorded events fell in areas this system had
+       placed in the Low tier. Tier boundaries are multiples of the base rate of the window
+       shown, so a tier carries the same meaning at seven days as at twenty-eight. The
+       measured rates beside each tier come from the calibrated linear member, because the
+       comparison across windows holds the model fixed; the probabilities come from the
+       full ensemble.",
+      input$horizon,
+      if (length(low) && !is.na(low)) sprintf("%.1f per cent", 100 * low) else "a large share"))
   })
 }
 

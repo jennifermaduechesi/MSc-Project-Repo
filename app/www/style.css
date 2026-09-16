@@ -1,0 +1,197 @@
+/* The page stays white and near-black. Colour is spent only where it
+       carries meaning: the four risk tiers, and one blue accent for the things
+       a person can act on. Corners are rounded and borders are hairlines rather
+       than hard rules, which is most of what makes a dense screen feel
+       approachable rather than administrative. */
+    :root {
+      --ink: #14161A;
+      --muted: #5F6672;
+      --paper: #FFFFFF;
+      --hairline: #E6E8EC;
+      --surface: #FAFBFC;
+      --accent: #2F6FAF;
+      --low: #4575B4;
+      --elevated: #91BFDB;
+      --high: #FC8D59;
+      --severe: #D73027;
+      --radius-lg: 14px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 2px rgba(20,22,26,.05), 0 6px 18px rgba(20,22,26,.05);
+    }
+
+    body {
+      background: var(--paper); color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   Helvetica, Arial, sans-serif;
+      font-size: 15px; line-height: 1.55;
+    }
+    .container-fluid { max-width: 1520px; }
+
+    /* Headings keep the serif. It gives the page a considered voice, while the
+       sans body face keeps the tables and numbers legible at small sizes. */
+    h1, h2, h3, h4 {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-weight: 600; letter-spacing: -0.01em; text-wrap: balance;
+    }
+    h2 { font-size: 27px; margin-bottom: 18px; }
+    h4 { font-size: 17px; margin-top: 22px; margin-bottom: 10px; }
+
+    .well, .panel {
+      background: var(--paper); border: 1px solid var(--hairline);
+      border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 18px;
+    }
+
+    /* Each headline figure carries a stripe in the colour of the tier it counts,
+       so the eye links the number to the same colour it just read on the map. */
+    .metric {
+      position: relative; overflow: hidden; background: var(--paper);
+      border: 1px solid var(--hairline); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow); padding: 14px 16px 14px 22px; margin-bottom: 12px;
+    }
+    .metric::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+      background: var(--accent);
+    }
+    .metric-severe::before { background: var(--severe); }
+    .metric-high::before   { background: var(--high); }
+    .metric-total::before  { background: var(--low); }
+    .metric .value {
+      font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+    }
+    .metric .caption {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+      color: var(--muted); margin-top: 2px;
+    }
+
+    .map-frame {
+      border: 1px solid var(--hairline); border-radius: var(--radius-lg);
+      overflow: hidden; box-shadow: var(--shadow);
+    }
+
+    /* A tier reads as a shape as well as a word, so the ranked list can be
+       scanned without reading every row. */
+    .pill {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; white-space: nowrap;
+    }
+    .pill-Low      { background: rgba(69,117,180,.14);  color: #2C5A8F; }
+    .pill-Elevated { background: rgba(145,191,219,.30); color: #276881; }
+    .pill-High     { background: rgba(252,141,89,.22);  color: #9E4A1B; }
+    .pill-Severe   { background: rgba(215,48,39,.16);   color: #A31C16; }
+
+    table.dataTable thead th {
+      border-bottom: 1px solid var(--hairline) !important;
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted); font-weight: 650;
+    }
+    table.dataTable tbody td {
+      border-top: none !important; font-variant-numeric: tabular-nums;
+      padding: 9px 10px;
+    }
+    table.dataTable tbody tr:hover { background: var(--surface); cursor: pointer; }
+    table.dataTable tbody tr.selected {
+      background: rgba(47,111,175,.10) !important; color: var(--ink) !important;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .table > tbody > tr > td, .table > thead > tr > th {
+      border-color: var(--hairline); padding: 8px 10px;
+    }
+    .table > thead > tr > th {
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    #make_brief {
+      background: var(--accent); color: #FFFFFF; border: none;
+      border-radius: var(--radius-sm); padding: 10px 18px;
+      font-weight: 600; font-size: 14px;
+    }
+    #make_brief:hover, #make_brief:focus { background: #255C93; color: #FFFFFF; }
+
+    .form-control, .selectize-input {
+      border-radius: var(--radius-sm) !important;
+      border: 1px solid var(--hairline) !important; box-shadow: none !important;
+    }
+    .irs-bar, .irs-single, .irs-from, .irs-to { background: var(--accent) !important; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    pre.brief {
+      white-space: pre-wrap; background: var(--surface);
+      border: 1px solid var(--hairline); border-radius: var(--radius-lg);
+      color: var(--ink); font-family: Georgia, serif; font-size: 14px;
+      line-height: 1.65; padding: 18px;
+    }
+    /* The detail column is narrow, and the driver names are full sentences. Left
+       to itself the table stretches past its column and collides with the panels
+       underneath, so it is constrained here and allowed to scroll on its own
+       rather than pushing the page sideways. */
+    #drivers table, #actors table, #incidents table {
+      font-size: 12.5px; width: auto; min-width: 100%;
+    }
+    #drivers table td, #actors table td, #incidents table td,
+    #drivers table th, #actors table th, #incidents table th {
+      padding: 6px 8px; vertical-align: top;
+    }
+    /* Headers are short labels and must never break mid-word, which is what a
+       fixed table layout does to them in a column this narrow. Columns are sized
+       to their content and the box scrolls instead. */
+    #drivers table th, #actors table th, #incidents table th { white-space: nowrap; }
+    #drivers table td:first-child { min-width: 130px; }
+    #drivers table td:not(:first-child), #actors table td:not(:first-child),
+    #incidents table td:not(:first-child) {
+      white-space: nowrap; font-variant-numeric: tabular-nums;
+    }
+    #drivers, #actors, #incidents {
+      overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px;
+    }
+
+    /* The cover sits in the initial HTML rather than being drawn by Shiny, so it
+       is on screen from the first paint. That matters most on a cold instance,
+       where the server spends several seconds waking, opening the warehouse and
+       building 774 polygons before it can send anything, and the page would
+       otherwise sit blank with no indication that it is working. */
+    #app-loading {
+      position: fixed; inset: 0; z-index: 9999; background: var(--paper);
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity .35s ease;
+    }
+    #app-loading.is-hidden { opacity: 0; pointer-events: none; }
+    .loading-card {
+      max-width: 380px; padding: 30px 34px; text-align: center;
+      border: 1px solid var(--hairline); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow); background: var(--paper);
+    }
+    .loading-title {
+      font-family: Georgia, 'Times New Roman', serif; font-size: 20px;
+      font-weight: 600; letter-spacing: -0.01em;
+    }
+    .loading-note { color: var(--muted); font-size: 14px; margin-top: 6px; }
+    .loading-bar {
+      margin-top: 20px; height: 4px; border-radius: 999px;
+      background: var(--hairline); overflow: hidden;
+    }
+    .loading-bar-fill {
+      height: 100%; width: 38%; border-radius: 999px; background: var(--accent);
+      animation: loading-slide 1.5s ease-in-out infinite;
+    }
+    @keyframes loading-slide {
+      0%   { transform: translateX(-110%); }
+      100% { transform: translateX(275%); }
+    }
+    .loading-hint { margin-top: 16px; font-size: 12px; color: var(--muted); }
+    /* A moving bar is decoration, not information, so it goes away for anyone
+       who has asked for less motion. The bar stays as a static rule. */
+    @media (prefers-reduced-motion: reduce) {
+      .loading-bar-fill { animation: none; width: 100%; }
+      #app-loading { transition: none; }
+    }
+
+    .leaflet-tooltip.lga-tooltip {
+      background: var(--paper); border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm); box-shadow: 0 4px 14px rgba(20,22,26,.12);
+      padding: 8px 10px; color: var(--ink); font-weight: 400;
+    }
+    .leaflet-tooltip.lga-tooltip::before { border-top-color: var(--hairline); }
+    .footnote { font-size: 12px; color: var(--muted); }
+    hr { border-top: 1px solid var(--hairline); }
