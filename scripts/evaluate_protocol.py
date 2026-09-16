@@ -200,7 +200,8 @@ def calibrate(base, x, y, area_of_row, n_splits=3, sample_weight=None):
 
 
 def run_folds(frame: pd.DataFrame, feature_names: list[str], weeks: np.ndarray,
-              n_areas: int, sample_weight: np.ndarray | None = None) -> list[dict]:
+              n_areas: int, sample_weight: np.ndarray | None = None,
+              keep_scores: list | None = None) -> list[dict]:
     """Rolling origin, five folds, the calibrated logistic model of section 3.5."""
     bounds, end = [], len(weeks)
     for _ in range(N_FOLDS):
@@ -228,6 +229,10 @@ def run_folds(frame: pd.DataFrame, feature_names: list[str], weeks: np.ndarray,
         metrics["test_to"] = str(pd.Timestamp(weeks[test_end - 1]).date())
         metrics["train_weeks"] = int(test_start)
         results.append(metrics)
+        if keep_scores is not None:
+            block = test[["pcode", "week", "y", "score"]].copy()
+            block["fold"] = fold
+            keep_scores.append(block)
     return results
 
 
@@ -377,7 +382,7 @@ def main() -> int:
     # ------------------------------------------------------------- A. horizon (C7)
     if "a" in wanted:
         print("\nA. horizon comparison, 7 / 14 / 28 days")
-        horizon_rows = {}
+        horizon_rows, horizon_scores = {}, []
         for h in HORIZONS:
             labels = forward_label(events, h)
             frame = assemble(pcodes, model_weeks, features0, labels, keep, names)
@@ -391,10 +396,18 @@ def main() -> int:
                 print(f"  horizon {h}w: dropped {dropped:,} rows "
                       f"({len(pcodes)} areas x {h - 1} week(s))")
             weeks = np.sort(frame["week"].unique())
-            rows = run_folds(frame.reset_index(drop=True), feature_names, weeks, len(pcodes))
+            kept: list = []
+            rows = run_folds(frame.reset_index(drop=True), feature_names, weeks,
+                             len(pcodes), keep_scores=kept)
             horizon_rows[f"{h * 7}d"] = rows
             show(f"{h * 7} days ({h}w)", rows)
+            scored = pd.concat(kept, ignore_index=True)
+            scored["horizon_days"] = h * 7
+            horizon_scores.append(scored)
         results["horizon"] = horizon_rows
+        path = Path(args.out).with_name("horizon_test_scores.parquet")
+        pd.concat(horizon_scores, ignore_index=True).to_parquet(path, index=False)
+        print(f"  per-horizon test scores written to {path}")
 
     # --------------------------------------------------------------- B. delay (C2)
     if "b" in wanted:

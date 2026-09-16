@@ -17,6 +17,7 @@ library(DT)
 library(dplyr)
 library(jsonlite)
 library(readr)
+library(sf)
 
 # ----------------------------------------------------------------------- data
 DATA <- "data"
@@ -25,7 +26,7 @@ drivers    <- read_csv(file.path(DATA, "drivers.csv"), show_col_types = FALSE)
 incidents  <- read_csv(file.path(DATA, "recent_incidents.csv"), show_col_types = FALSE)
 history    <- read_csv(file.path(DATA, "history.csv"), show_col_types = FALSE)
 meta       <- fromJSON(file.path(DATA, "meta.json"))
-shapes     <- fromJSON(file.path(DATA, "lga.geojson"), simplifyVector = FALSE)
+shapes     <- st_read(file.path(DATA, "lga.geojson"), quiet = TRUE)
 band_stats <- read_csv(file.path(DATA, "band_stats.csv"), show_col_types = FALSE)
 
 HORIZONS <- c("7 days" = 7, "14 days" = 14, "28 days" = 28)
@@ -192,24 +193,27 @@ server <- function(input, output, session) {
   })
 
   observe({
-    d <- current()
-    lookup <- setNames(d$band, d$pcode)
-    probs  <- setNames(d$probability, d$pcode)
-    ranks  <- setNames(d$rank, d$pcode)
-    keep <- filtered()$pcode
-    feats <- Filter(function(f) f$properties$pcode %in% keep, shapes$features)
-    fills <- vapply(feats, function(f) BAND_FILL[[lookup[[f$properties$pcode]]]], "")
-    labs  <- vapply(feats, function(f) {
-      p <- f$properties$pcode
-      sprintf("<b>%s</b><br>%s<br>%s &middot; rank %d<br>%.1f%% chance in %s days",
-              f$properties$lga, f$properties$state, lookup[[p]], ranks[[p]],
-              100 * probs[[p]], input$horizon)
-    }, "")
-    leafletProxy("map") |>
+    keep <- filtered()
+    if (nrow(keep) == 0) {
+      leafletProxy("map") |> clearShapes()
+      return(invisible(NULL))
+    }
+    shp <- shapes[shapes$pcode %in% keep$pcode, ]
+    shp <- merge(shp, keep[, c("pcode", "band", "probability", "rank", "lga", "state")],
+                 by = "pcode", all.x = TRUE)
+    labels <- sprintf(
+      "<b>%s</b><br>%s<br>%s &middot; rank %d of %d<br>%.1f%% chance within %s days",
+      shp$lga.y, shp$state.y, shp$band, shp$rank, meta$areas,
+      100 * shp$probability, input$horizon)
+    leafletProxy("map", data = shp) |>
       clearShapes() |>
-      addGeoJSON(list(type = "FeatureCollection", features = feats),
-                 weight = 0.5, color = "#7C8899", fillOpacity = 0.85,
-                 fillColor = fills, label = lapply(labs, HTML))
+      addPolygons(
+        layerId = ~pcode,
+        weight = 0.5, color = "#7C8899", opacity = 1,
+        fillColor = unname(BAND_FILL[shp$band]), fillOpacity = 0.85,
+        highlightOptions = highlightOptions(weight = 2, color = "#25303F",
+                                            bringToFront = TRUE),
+        label = lapply(labels, HTML))
   })
 
   output$ranked <- renderDT({
@@ -221,6 +225,14 @@ server <- function(input, output, session) {
       formatStyle("Band", backgroundColor = styleEqual(BANDS, unname(BAND_FILL[BANDS])),
                   color = styleEqual(BANDS, unname(BAND_TEXT[BANDS])),
                   fontWeight = "bold")
+  })
+
+  observeEvent(input$map_shape_click, {
+    hit <- forecast |> filter(pcode == input$map_shape_click$id) |> slice(1)
+    if (nrow(hit)) {
+      updateSelectizeInput(session, "area",
+                           selected = paste0(hit$lga, ", ", hit$state))
+    }
   })
 
   output$compare_intro <- renderUI({
@@ -239,9 +251,13 @@ server <- function(input, output, session) {
   output$band_compare <- renderDT({
     band_stats |>
       mutate(Window = paste0(horizon_days, " days"),
-             Band = band, Areas = areas,
+             Band = band,
+             `Areas per week` = round(areas_per_week, 1),
+             `Realised rate` = sprintf("%.3f", realised_rate),
+             `Share of events` = sprintf("%.1f%%", 100 * share_of_events),
              `Base rate` = sprintf("%.4f", anchor_rate)) |>
-      select(Window, Band, Areas, `Base rate`) |>
+      select(Window, Band, `Areas per week`, `Realised rate`,
+             `Share of events`, `Base rate`) |>
       datatable(rownames = FALSE, options = list(pageLength = 12, dom = "t"))
   })
 
