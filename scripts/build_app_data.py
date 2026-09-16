@@ -453,11 +453,6 @@ def main() -> int:
     recent = recent.sort_values("date", ascending=False)
     recent.to_csv(out / "recent_incidents.csv", index=False)
 
-    history = (pd.DataFrame({"pcode": np.repeat(pcodes, len(all_weeks)),
-                             "week": np.tile(all_weeks, len(pcodes)),
-                             "events": events.reshape(-1)})
-               .query("week >= '2021-01-01'"))
-    history.to_csv(out / "history.csv", index=False)
 
     summary["forecast_week"] = str(forecast_week.date())
     summary["last_completed_week"] = str(model_weeks[-1].date())
@@ -467,7 +462,7 @@ def main() -> int:
 
     print(f"\nwritten to {out}/: forecast.csv ({len(scored):,} rows), "
           f"drivers.csv ({len(driver_rows):,}), recent_incidents.csv ({len(recent):,}), "
-          f"history.csv ({len(history):,}), meta.json")
+          f"meta.json")
     return 0
 
 
