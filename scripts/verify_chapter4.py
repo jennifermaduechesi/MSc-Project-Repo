@@ -240,6 +240,110 @@ check("4.9 sign-disagreement areas",
       num(says(r"signs disagree in only (\w+) of the 774").replace("sixteen", "16")),
       int(((g["min"] < 0) & (g["max"] > 0)).sum()))
 
+# ------------------------------- claims a first pass of this checker did not cover.
+# Every one of these was written into the chapter without anything re-deriving it, and
+# four of them were wrong. They are pinned here so that cannot happen silently again.
+check("4.2 quiet share of test rows",
+      num(says(r"order the (\d+) per cent of quiet area-weeks")),
+      round(100 * (1 - scores["occurred"].mean())))
+check("4.2 recency share of attacked areas",
+      num(says(r"it puts ([\d.]+) per cent of the week's attacked")),
+      100 * mean_of(ens["results"], "recency", "recall_at_20"), 0.05)
+check("4.11 stack share of attacked areas",
+      num(says(r"puts ([\d.]+) per cent of a week's attacked")),
+      100 * mean_of(ens["results"], "ensemble_unweighted", "recall_at_20"), 0.05)
+
+# The graph network against the linear member, fold by fold. The first draft said it
+# lost folds four and five; it loses only fold four and wins fold five by its widest
+# margin, which changes what the section is entitled to claim.
+gm = [f["average_precision"] for f in ens["results"]["stgnn"]]
+lm = [f["average_precision"] for f in ens["results"]["logistic"]]
+wins = [round(g - l, 3) for g, l in zip(gm, lm) if g > l]
+losses = [round(l - g, 3) for g, l in zip(gm, lm) if g <= l]
+stated_wins = [float(x) for x in re.findall(
+    r"[\d.]+", says(r"in four folds of the five, by ([\d., and]+?), and loses"))]
+check("4.4 graph network fold wins", sorted(stated_wins), sorted(wins))
+check("4.4 graph network fold count", num(says(r"beats the logistic model .*? in (\w+) folds")
+      .replace("four", "4")), len(wins))
+check("4.4 graph network loss margin",
+      num(says(r"loses only in fold four, by ([\d.]+)")), losses[0], 0.0005)
+check("4.4 aggregate margin", num(says(r"aggregate margin of ([\d.]+)")),
+      mean_of(ens["results"], "stgnn", "average_precision")
+      - mean_of(ens["results"], "logistic", "average_precision"), 0.0005)
+
+check("4.5 meta largest weight count",
+      num(says(r"largest weight of any member in (\w+) of five folds").replace("three", "3")),
+      sum(1 for f in w.values()
+          if max(("logistic", "random_forest", "gradient_boosting", "stgnn"),
+                 key=lambda m: f[m]) == "stgnn"))
+
+check("4.8 Zamfara share of area-weeks",
+      num(says(r"from ([\d.]+) per cent of the area-weeks")),
+      100 * len(s[s["state"] == "Zamfara"]) / len(s), 0.05)
+check("4.8 Zamfara event rate", num(says(r"at an event rate of ([\d.]+) against a national")),
+      st.loc["Zamfara", "observed"], 0.0005)
+check("4.8 Zamfara share of events", num(says(r"Zamfara alone carries ([\d.]+) per cent")),
+      100 * st.loc["Zamfara", "events"] / st["events"].sum(), 0.05)
+check("4.8 Niger over-prediction", num(says(r"the model predicts (\d+) per cent too much")),
+      round(100 * (st.loc["Niger", "predicted"] / st.loc["Niger", "observed"] - 1)))
+check("4.8 FCT under-prediction", num(says(r"it predicts (\d+) per cent too little")),
+      round(100 * (1 - st.loc["Federal Capital Territory", "predicted"]
+                   / st.loc["Federal Capital Territory", "observed"])))
+
+col = json.load(open(PROC / "collinearity.json"))
+check("4.9 collinear pair correlation", num(says(r"for an area correlate at ([\d.]+)")),
+      col["correlation"], 0.005)
+check("4.9 areas with the pair opposed",
+      num(says(r"In (\d+) of the 774 areas both appear")),
+      col["both_in_top_six_opposite_signs"])
+check("4.9 mean magnitude of the pair", num(says(r"at magnitudes averaging ([\d.]+)")),
+      col["mean_absolute_contribution"], 0.005)
+check("4.9 net of the pair", num(says(r"netting to about -([\d.]+)")),
+      abs(col["mean_net_contribution"]), 0.005)
+
+hz = prot["horizon"]
+for window, word in ((7, "next week's"), (14, "next fortnight's")):
+    check(f"4.6 recall per cent at {window}d",
+          num(says(rf"(\d+) per cent of the {re.escape(word)}")),
+          round(100 * np.mean([f["recall_at_20"] for f in hz[f"{window}d"]])))
+bs = pd.read_csv(PROC / "band_stats.csv")
+for days, pat in ((28, r"falling to ([\d.]+) areas per week"),
+                  (7, r"areas per week against ([\d.]+) at seven days")):
+    row = bs[(bs.horizon_days == days) & (bs.band == "Severe")].iloc[0]
+    check(f"4.6 Severe areas per week at {days}d", num(says(pat)), row["areas_per_week"], 0.05)
+
+dl = prot["delay"]
+base_ap = np.mean([f["average_precision"] for f in dl["0w"]])
+base_r = np.mean([f["recall_at_20"] for f in dl["0w"]])
+check("4.7 one-week AP cost", num(says(r"records costs ([\d.]+) of average precision")),
+      base_ap - np.mean([f["average_precision"] for f in dl["1w"]]), 0.0005)
+check("4.7 one-week recall cost",
+      num(says(r"from 0\.183 to 0\.172, and ([\d.]+) of recall at twenty")),
+      base_r - np.mean([f["recall_at_20"] for f in dl["1w"]]), 0.0005)
+check("4.7 two-week costs",
+      [float(x.rstrip(".")) for x in
+       re.findall(r"[\d.]+", says(r"two weeks costs ([\d.]+ and [\d.]+)"))],
+      [round(float(base_ap - np.mean([f["average_precision"] for f in dl["2w"]])), 3),
+       round(float(base_r - np.mean([f["recall_at_20"] for f in dl["2w"]])), 3)])
+
+check("4.2 calibration AP cost", num(says(r"costs the logistic model ([\d.]+) of average")),
+      mean_of(hur["stage_one"], "logistic", "average_precision")
+      - mean_of(hur["stage_one"], "logistic_calibrated", "average_precision"), 0.0005)
+best_ap = max(mean_of(ens["results"], m, "average_precision")
+              for m in ("logistic", "random_forest", "gradient_boosting", "stgnn"))
+best_r = max(mean_of(ens["results"], m, "recall_at_20")
+             for m in ("logistic", "random_forest", "gradient_boosting", "stgnn"))
+check("4.11 best single member AP",
+      num(says(r"against ([\d.]+) and [\d.]+ for the best single")), best_ap, 0.0005)
+check("4.11 best single member recall",
+      num(says(r"against [\d.]+ and ([\d.]+) for the best single")), best_r, 0.0005)
+check("4.11 best member on AP is the random forest", "random_forest",
+      max(("logistic", "random_forest", "gradient_boosting", "stgnn"),
+          key=lambda m: mean_of(ens["results"], m, "average_precision")))
+check("4.11 best member on recall is the logistic", "logistic",
+      max(("logistic", "random_forest", "gradient_boosting", "stgnn"),
+          key=lambda m: mean_of(ens["results"], m, "recall_at_20")))
+
 w_ = max(len(l) for l, _, _ in PASS + FAIL) + 2
 for l, s_, c_ in PASS: print(f"  [pass] {l:<{w_}} stated {str(s_)[:30]:>32}  computed {str(c_)[:30]:>32}")
 for l, s_, c_ in FAIL: print(f"  [FAIL] {l:<{w_}} stated {str(s_)[:30]:>32}  computed {str(c_)[:30]:>32}")
