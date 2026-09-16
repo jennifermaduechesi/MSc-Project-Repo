@@ -73,6 +73,12 @@ def main() -> int:
             realised = float(y[mask].mean()) if mask.any() else float("nan")
             rows.append({
                 "horizon_days": int(days), "band": name,
+                # The horizon comparison holds the model fixed at the calibrated linear
+                # member, for the reason section 3.7 gives: a model that changed between
+                # windows would confound the window with the algorithm. So these realised
+                # rates describe that model, not the stack the interface displays, and
+                # the interface has to say so rather than let a reader assume otherwise.
+                "validated_on": "calibrated linear model, all three windows",
                 "areas_per_week": mask.sum() / n_weeks,
                 "realised_rate": realised,
                 "times_base": realised / base if mask.any() else float("nan"),

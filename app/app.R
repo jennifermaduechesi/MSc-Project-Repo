@@ -189,7 +189,15 @@ server <- function(input, output, session) {
           span(style = "margin-left:10px; font-weight:700", n, "areas"),
           div(class = "muted", style = "margin-left:2px", realised))
     })
+    severe_thin <- nrow(s) && !is.na(s$areas_per_week[s$band == "Severe"][1]) &&
+      s$areas_per_week[s$band == "Severe"][1] < 1
     tagList(h5("Bands this week"), rows,
+            if (isTRUE(severe_thin))
+              div(class = "muted", style = "margin-bottom:8px",
+                  HTML(paste("At this window the Severe cut is eight times a base rate",
+                             "of roughly", sprintf("%.2f", s$anchor_rate[1]),
+                             ", which asks for a probability near certainty. Almost no",
+                             "area reaches it, so read High as the top band here."))),
             div(class = "muted",
                 HTML(sprintf(paste("Boundaries sit at 2, 4 and 8 times the base rate of",
                                    "the %d completed weeks before the forecast that",
@@ -198,7 +206,14 @@ server <- function(input, output, session) {
                                    "1 January 2026 rather than running back a fixed 52",
                                    "weeks, because the rate either side of it is not",
                                    "the same quantity."),
-                             info$anchor_weeks, s$anchor_rate[1]))))
+                             info$anchor_weeks, s$anchor_rate[1]))),
+            div(class = "muted", style = "margin-top:6px",
+                HTML(paste("Realised rates are measured on the",
+                           "calibrated linear member across all three windows, because",
+                           "the horizon comparison holds the model fixed so that a",
+                           "change between windows is a change of window and not of",
+                           "algorithm. The probabilities above them come from the full",
+                           "ensemble."))))
   })
 
   output$map <- renderLeaflet({
