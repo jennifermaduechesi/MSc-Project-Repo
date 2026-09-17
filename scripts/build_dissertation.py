@@ -104,10 +104,17 @@ def runs_with_markup(paragraph, text: str) -> None:
             paragraph.add_run(part)
 
 
+BODY_STYLES = {None, "Normal"}
+
+
 def para(doc, text: str = "", style: str | None = None, align=None, indent_first=None):
     p = doc.add_paragraph(style=style)
     if align is not None:
         p.alignment = align
+    elif style in BODY_STYLES:
+        # Body prose is justified. Headings, captions and the centred blocks set their
+        # own alignment and are left alone.
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     if indent_first is not None:
         p.paragraph_format.first_line_indent = indent_first
     if text:
@@ -200,15 +207,50 @@ def front_matter(doc, fm: dict) -> None:
     para(doc, "Date: ______________", align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
     doc.add_page_break()
 
-    for heading, instr in (("TABLE OF CONTENTS", r'TOC \o "1-3" \h \z \u'),
-                           ("LIST OF TABLES", r'TOC \h \z \c "Table"'),
-                           ("LIST OF FIGURES", r'TOC \h \z \c "Figure"')):
+    listings = fm.get("listings") or {}
+    for heading, key in (("TABLE OF CONTENTS", "contents"),
+                         ("LIST OF TABLES", "tables"),
+                         ("LIST OF FIGURES", "figures")):
         para(doc, heading, style="Section Title")
-        p = para(doc, indent_first=Pt(0))
-        field(p, instr)
-        para(doc, "[Right-click and choose Update Field in Word to populate this listing.]",
-             indent_first=Pt(0))
+        rows = listings.get(key)
+        if rows:
+            add_listing(doc, rows)
+        else:
+            para(doc, "[This listing is generated when the document is assembled.]",
+                 indent_first=Pt(0))
         doc.add_page_break()
+
+
+def add_listing(doc, rows: list[tuple[int, str, str]]) -> None:
+    """Write one listing line per entry: text, dot leader, page number.
+
+    Word sets a right tab with a dot leader at the text margin, which is what puts the
+    page number at the right edge with dots running up to it.
+    """
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    right_edge = Inches(6.5)
+    for level, text, page in rows:
+        p = doc.add_paragraph()
+        pf = p.paragraph_format
+        pf.first_line_indent = Pt(0)
+        pf.left_indent = Inches(0.25 * level)
+        pf.space_after = Pt(0)
+        _set_single(p)
+        pf.tab_stops.add_tab_stop(right_edge - Inches(0.25 * level),
+                                  WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+        run = p.add_run(text)
+        if level == 0:
+            run.bold = True
+        p.add_run("\t" + page)
+
+
+def _set_single(paragraph) -> None:
+    pf = paragraph.paragraph_format._element.get_or_add_pPr()
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:line"), "276")
+    spacing.set(qn("w:lineRule"), "auto")
+    spacing.set(qn("w:after"), "0")
+    pf.append(spacing)
 
 
 # ------------------------------------------------------------------------------ chapters
@@ -302,7 +344,7 @@ def parse_front_matter() -> dict:
     return fm
 
 
-def main() -> None:
+def main(listings: dict | None = None) -> None:
     doc = Document(str(TEMPLATE))
     body = doc.element.body
     for child in list(body):
@@ -310,6 +352,7 @@ def main() -> None:
             body.remove(child)
 
     fm = parse_front_matter()
+    fm["listings"] = listings or {}
     front_matter(doc, fm)
 
     doc.add_section(WD_SECTION.NEW_PAGE)

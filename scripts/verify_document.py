@@ -87,6 +87,56 @@ hang = [p for p in paras if p.paragraph_format.first_line_indent is not None
         and p.paragraph_format.first_line_indent < 0]
 check("every reference entry is in the document with a hanging indent", len(refs), len(hang))
 
+# --------------------------------------------- the three listings are real, not stubs
+import re as _re
+def listing_rows(after: str, stop: str) -> list[str]:
+    seen, rows = False, []
+    for p in paras:
+        t = p.text.strip()
+        if t == after:
+            seen = True; continue
+        if seen and (t == stop or p.style.name == "Heading 1"):
+            break
+        if seen and "\t" in t:
+            rows.append(t)
+    return rows
+
+contents = listing_rows("TABLE OF CONTENTS", "LIST OF TABLES")
+lot = listing_rows("LIST OF TABLES", "LIST OF FIGURES")
+lof = listing_rows("LIST OF FIGURES", "Chapter One: Introduction")
+check("table of contents is populated", True, len(contents) > 40)
+check("list of tables has one row per table", len(tables), len(lot))
+check("list of figures has one row per figure", len(figures), len(lof))
+check("no placeholder text survives in the listings", 0,
+      sum(1 for r in contents + lot + lof if "[" in r))
+check("every listing row ends in a page number", 0,
+      sum(1 for r in contents + lot + lof
+          if not _re.search(r"\t(?:[ivxlcdm]+|\d+)$", r)))
+
+# Every chapter heading and every front-matter section is listed.
+listed = {r.split("\t")[0].strip() for r in contents}
+headings = [p.text.strip() for p in paras
+            if p.style.name in ("Heading 1", "Heading 2", "Heading 3", "Section Title")
+            and p.text.strip() != "ABSTRACT"]
+missing = [h for h in headings if h not in listed and h not in
+           ("TABLE OF CONTENTS", "LIST OF TABLES", "LIST OF FIGURES")]
+check("every heading appears in the table of contents", [], missing)
+
+# Front matter is roman, the body arabic.
+front_labels = [r.split("\t")[-1] for r in contents[:8]]
+check("front matter listed in roman numerals", True,
+      all(_re.fullmatch(r"[ivxlcdm]+", x) for x in front_labels))
+body_labels = [r.split("\t")[-1] for r in contents if r.split("\t")[0].startswith("Chapter ")]
+check("chapters listed in arabic numerals", True,
+      all(x.isdigit() for x in body_labels))
+check("chapter page numbers increase", body_labels, sorted(body_labels, key=int))
+
+# ------------------------------------------------------------- body prose is justified
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+normal = [p for p in paras if p.style.name == "Normal" and len(p.text.split()) > 25]
+check("body prose is justified", True,
+      all(p.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY for p in normal))
+
 w = max(len(l) for l, _, _ in PASS + FAIL) + 2
 for l, s, c in PASS: print(f"  [pass] {l:<{w}} {str(c)[:52]}")
 for l, s, c in FAIL: print(f"  [FAIL] {l:<{w}} expected {str(s)[:40]}  got {str(c)[:40]}")
