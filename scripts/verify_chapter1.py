@@ -106,6 +106,15 @@ check("data: mean taken per North West incident",
 check("data: mean taken per incident elsewhere",
       num(says(r"against ([\d.]+) elsewhere")), other["kidnapped"].fillna(0).mean(), 0.005)
 
+# The background section now claims the recency baseline is already several times better
+# than chance, which is a forward reference to Chapter Four and has to hold.
+import json
+import numpy as np
+recency = json.load(open("data/processed/ensemble_results.json"))["results"]["recency"]
+lift = float(np.mean([f["ap_lift_over_base"] for f in recency]))
+check("data: recency baseline is several times better than chance", True, 2.0 < lift < 10.0)
+print(f"      (recency lift over base is {lift:.2f}x)")
+
 # ------------------------------------ any figure shared with a later chapter must match
 later = "\n".join((D / f).read_text(encoding="utf-8") for f in LATER)
 SHARED = ["1.961", "506,970", "81.3", "655", "774", "26,683", "292", "23,407", "4,616",
