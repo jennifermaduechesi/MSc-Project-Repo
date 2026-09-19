@@ -291,7 +291,15 @@ def add_markdown(doc, path: Path, heading_text: str) -> None:
             p = para(doc, style="Table/Figure", align=WD_ALIGN_PARAGRAPH.CENTER,
                      indent_first=Pt(0))
             p.add_run().add_picture(str(target), width=FIGURE_WIDTH)
-        elif s.startswith("*Note*") or s.startswith("*Figure "):
+        elif s.startswith("*Figure "):
+            caption = s.replace("*", "")
+            cp = para(doc, style="Table/Figure", align=WD_ALIGN_PARAGRAPH.CENTER,
+                      indent_first=Pt(0))
+            run = cp.add_run(caption)
+            run.italic = False
+            run.bold = False
+            run.font.size = Pt(10)
+        elif s.startswith("*Note*"):
             para(doc, s, style="Table/Figure", indent_first=Pt(0))
         elif s.startswith("*") and s.endswith("*") and s.count("*") == 2:
             para(doc, s, style="Table/Figure", indent_first=Pt(0))
@@ -374,5 +382,27 @@ def main(listings: dict | None = None) -> None:
           f"figures {len(doc.inline_shapes)}, sections {len(doc.sections)}")
 
 
+def single_chapter(index: int) -> Path:
+    """Build one chapter on its own, in the template's styles, for supervisor review."""
+    heading, filename = CHAPTERS[index - 1]
+    doc = Document(str(TEMPLATE))
+    body = doc.element.body
+    for child in list(body):
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+    add_markdown(doc, D / filename, heading)
+    section = doc.sections[0]
+    page_numbering(section, "decimal", 1, title_page=False)
+    footer_page_number(section)
+    out = D / f"Chapter_{['One','Two','Three','Four','Five'][index-1]}_for_review.docx"
+    doc.save(out)
+    print(f"wrote {out} ({len(doc.paragraphs)} paragraphs, {len(doc.tables)} tables, "
+          f"{len(doc.inline_shapes)} figures)")
+    return out
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 2 and sys.argv[1] == "--chapter":
+        single_chapter(int(sys.argv[2]))
+    else:
+        main()

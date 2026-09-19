@@ -83,11 +83,11 @@ CHECKS = [
      mean_of("recency", "average_precision"), 0.0005),
     ("stack recall per cent", r"places ([\d.]+) per cent of a week's",
      100 * mean_of("ensemble_unweighted", "recall_at_20"), 0.05),
-    ("recency recall per cent", r"of twenty against ([\d.]+) per cent for the recency",
+    ("recency recall per cent", r"in a list of twenty against ([\d.]+) per cent",
      100 * mean_of("recency", "recall_at_20"), 0.05),
     ("exactly one event", r"because ([\d.]+) per cent of positive area-weeks hold exactly one",
      100 * (ev[ev > 0] == 1).mean(), 0.05),
-    ("graph AP", r"graph network reaches an average precision of ([\d.]+)",
+    ("graph AP", r"It reaches an average precision of ([\d.]+)",
      mean_of("stgnn", "average_precision"), 0.0005),
     ("logistic AP", r"of [\d.]+ against ([\d.]+) for the calibrated logistic model and a ROC",
      mean_of("logistic", "average_precision"), 0.0005),
@@ -97,12 +97,15 @@ CHECKS = [
      mean_of("stgnn", "recall_at_20"), 0.0005),
     ("logistic recall", r"top twenty is [\d.]+ against ([\d.]+)\. It wins",
      mean_of("logistic", "recall_at_20"), 0.0005),
-    ("graph Brier", r"carrying a Brier score of ([\d.]+) against", mean_of("stgnn", "brier"), 0.0005),
-    ("logistic Brier", r"Brier score of [\d.]+ against ([\d.]+) for the calibrated",
-     mean_of("logistic", "brier"), 0.0005),
+    ("graph Brier", r"carrying a Brier score of ([\d.]+), so it cannot",
+     mean_of("stgnn", "brier"), 0.0005),
+    # The restructured chapter states the stack's own Brier rather than comparing it to
+    # the logistic member's, so this now checks the stack.
+    ("stack Brier", r"carries a Brier score of ([\d.]+), matching the best-calibrated",
+     mean_of("ensemble_unweighted", "brier"), 0.0005),
     ("stack recall", r"average precision and ([\d.]+) recall at twenty",
      mean_of("ensemble_unweighted", "recall_at_20"), 0.0005),
-    ("weighted meta Brier", r"produced a Brier score of ([\d.]+)\. That version",
+    ("weighted meta Brier", r"produced a Brier score of ([\d.]+), which would have left",
      mean_of("ensemble", "brier"), 0.0005),
     ("two-week AP cost", r"records costs ([\d.]+) of average precision",
      mean_of("0w", "average_precision", prot["delay"])
@@ -187,17 +190,22 @@ print(f"  ({len(tokens)} distinct figures carried forward, "
       f"{len(tokens) - len(orphans)} found in the source chapters)")
 
 # ------------------------- part three: the questions and the house spelling convention
+# The Research Questions section was removed at the supervisor's instruction, so Chapter
+# Five now draws its conclusions against the objectives. Each objective must have one.
 c1 = (D / "chapter1_introduction_v2.md").read_text()
-block = c1[c1.index("## Research Questions"):]
-block = block[:block.index("\n## ", 5)]
-q1 = [re.sub(r"\s+", " ", m.group(1)).strip().rstrip(".?")
-      for m in re.finditer(r"^\d+\.\s+(.*)$", block, re.M)]
-q5 = [re.sub(r"\s+", " ", m.group(1)).strip().rstrip("*").rstrip(".?")
-      for m in re.finditer(r"^\*(.+?)\*$", ch5, re.M)]
-q5 = [q for q in q5 if len(q) > 60]
-check("consistency: six research questions restated", len(q1), len(q5))
-for i, (a, b) in enumerate(zip(q1, q5), 1):
-    check(f"consistency: research question {i} quoted verbatim", a, b)
+block = c1[c1.index("The specific objectives are:"):]
+block = block[:block.index("\n## ")]
+objectives = [m.group(1) for m in re.finditer(r"^(\d+)\.\s+To ", block, re.M)]
+headings = re.findall(r"^### Objective (\w+):", ch5, re.M)
+WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+check("consistency: one conclusion per objective", len(objectives), len(headings))
+check("consistency: objectives numbered in order", [str(i) for i in range(1, len(headings) + 1)],
+      [str(WORDS[h]) for h in headings])
+check("consistency: no research questions remain anywhere", 0,
+      sum((D / f).read_text().lower().count("research question")
+          for f in ["chapter1_introduction_v2.md", "chapter2_literature_review.md",
+                    "chapter3_methodology.md", "chapter4_results.md",
+                    "chapter5_conclusions.md"]))
 
 # The dissertation is written in British English. "percent" is the American form and had
 # drifted into one chapter, which would read as carelessness beside 74 uses of "per cent".
