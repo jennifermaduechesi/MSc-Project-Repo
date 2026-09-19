@@ -68,7 +68,7 @@ print("CHAPTER THREE CLAIM VERIFICATION")
 print("=" * 110)
 
 # ---------------------------------------------------------------- 3.2 source files
-print("\n-- Table 3, the two supplied files ------------------------------------------")
+print("\n-- Table 4, the two supplied files ------------------------------------------")
 for name, path, md5, size in [
     ("general log", "data/raw/DATA_SOURCE.xlsx", "f5312b966daaf559338f0252aa4e4fd3", 10879033),
     ("specialist file", "data/raw/Additional_data.xlsx", "ee805d9d35d2d81f04e77e8383733184", 1281987),
@@ -157,8 +157,8 @@ check("pre-window records retained as history", 136,
       int((final["is_target"] & ~final["in_model_period"] &
            (final["date"] < pd.Timestamp("2014-01-13"))).sum()))
 
-# ---------------------------------------------------------- Table 7 coverage regimes
-print("\n-- Table 7, coverage regimes ------------------------------------------------")
+# ---------------------------------------------------------- Table 8 coverage regimes
+print("\n-- Table 8, coverage regimes ------------------------------------------------")
 wk = panel.groupby("week")["occurred"].sum()
 r1 = wk[(wk.index >= "2014-01-13") & (wk.index <= "2020-12-27")]
 r2 = wk[(wk.index >= "2020-12-28") & (wk.index <= "2025-12-29")]
@@ -169,8 +169,8 @@ for label, block, n_weeks, rate in [("single-source 2014-2020", r1, 363, 4.7),
     check(f"{label}: weeks", n_weeks, len(block))
     check(f"{label}: positives per week", rate, round(float(block.mean()), 1), tol=0.06)
 
-# ------------------------------------------------------------- Table 8 fold design
-print("\n-- Table 8, rolling-origin folds --------------------------------------------")
+# ------------------------------------------------------------- Table 9 fold design
+print("\n-- Table 9, rolling-origin folds --------------------------------------------")
 for fold, (train_w, rate) in enumerate(
         [(395, 3.49), (447, 2.73), (499, 3.82), (551, 4.75), (603, 3.25)], 1):
     test = panel[panel.week.isin(weeks[train_w:train_w + 52])]
@@ -231,29 +231,29 @@ check("3.6 weighted stack Brier as stated", stated_brier,
 # --------------------------------------------------------- 3.7 evaluation protocol
 print("\n-- 3.7 The evaluation protocol ----------------------------------------------")
 pr = json.load(open("data/processed/protocol_results.json"))
-rows11 = chapter_table(11)[1:]          # Horizon | Base | AP | Lift | R@20 | Lift@20
+rows11 = chapter_table(13)[1:]          # Horizon | Base | AP | Lift | R@20 | Lift@20
 for row, key in zip(rows11, ("7d", "14d", "28d")):
     r = pr["horizon"][key]
-    check(f"Table 11 {row[0]} base rate", float(row[1]), m(r, "base_rate"), tol=0.00006)
-    check(f"Table 11 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
-    check(f"Table 11 {row[0]} lift over base", float(row[3]),
+    check(f"Table 13 {row[0]} base rate", float(row[1]), m(r, "base_rate"), tol=0.00006)
+    check(f"Table 13 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 13 {row[0]} lift over base", float(row[3]),
           round(m(r, "ap_lift_over_base"), 1), tol=0.06)
-    check(f"Table 11 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
-    check(f"Table 11 {row[0]} lift@20", float(row[5]), round(m(r, "lift_at_20"), 1), tol=0.06)
+    check(f"Table 13 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
+    check(f"Table 13 {row[0]} lift@20", float(row[5]), round(m(r, "lift_at_20"), 1), tol=0.06)
 
-rows12 = chapter_table(12)[1:]          # Delay | Base | AP | Lift | R@20 | Lift@20 | Brier
+rows12 = chapter_table(14)[1:]          # Delay | Base | AP | Lift | R@20 | Lift@20 | Brier
 for row, key in zip(rows12, ("0w", "1w", "2w")):
     r = pr["delay"][key]
-    check(f"Table 12 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
-    check(f"Table 12 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
-    check(f"Table 12 {row[0]} Brier", float(row[6]), m(r, "brier"), tol=0.00006)
+    check(f"Table 14 {row[0]} AP", float(row[2]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 14 {row[0]} R@20", float(row[4]), round(m(r, "recall_at_20"), 3), tol=0.0006)
+    check(f"Table 14 {row[0]} Brier", float(row[6]), m(r, "brier"), tol=0.00006)
 
 u = pr["under_reporting"]
-rows14 = chapter_table(14)[1:]          # Loss | AP | Lift | R@20 | Lift@20 | Brier
+rows14 = chapter_table(16)[1:]          # Loss | AP | Lift | R@20 | Lift@20 | Brier
 for row, key in zip(rows14, ("unweighted", "reweighted")):
     r = u[key]
-    check(f"Table 14 {row[0][:22]} AP", float(row[1]), m(r, "average_precision"), tol=0.00006)
-    check(f"Table 14 {row[0][:22]} R@20", float(row[3]),
+    check(f"Table 16 {row[0][:22]} AP", float(row[1]), m(r, "average_precision"), tol=0.00006)
+    check(f"Table 16 {row[0][:22]} R@20", float(row[3]),
           round(m(r, "recall_at_20"), 3), tol=0.0006)
 
 check("pooled national detection", 0.365, round(u["pooled_detection"], 3), tol=0.0006)
@@ -275,21 +275,21 @@ for st, val in [("Zamfara", 0.518), ("Katsina", 0.440), ("Kaduna", 0.350), ("Bor
                 ("Benue", 0.235), ("Sokoto", 0.528), ("Niger", 0.422), ("Plateau", 0.288),
                 ("Imo", 0.406), ("Anambra", 0.302)]:
     row = det[det.state == st].iloc[0]
-    check(f"Table 13 {st} detection", val, round(float(row["detection"]), 3), tol=0.0006)
+    check(f"Table 15 {st} detection", val, round(float(row["detection"]), 3), tol=0.0006)
 
 # -------------------------------------------------------------------- 3.8 the bands
 print("\n-- 3.8 The decision-support interface ---------------------------------------")
 rb = json.load(open("data/processed/risk_bands.json"))
 rec = {r["band"]: r for r in rb["anchors"]["recent"]}
-rows15 = chapter_table(15)[1:]          # Band | Definition | Areas | Realised | xBase | Share
+rows15 = chapter_table(17)[1:]          # Band | Definition | Areas | Realised | xBase | Share
 for row in rows15:
     r = rec[row[0]]
-    check(f"Table 15 {row[0]} areas/week", float(row[2]),
+    check(f"Table 17 {row[0]} areas/week", float(row[2]),
           round(r["areas_per_week"], 1), tol=0.06)
-    check(f"Table 15 {row[0]} realised rate", float(row[3]),
+    check(f"Table 17 {row[0]} realised rate", float(row[3]),
           round(r["realised_rate"], 3), tol=0.0006)
-    check(f"Table 15 {row[0]} times base", float(row[4]), round(r["times_base"], 1), tol=0.06)
-    check(f"Table 15 {row[0]} share of events %", float(row[5].rstrip("%")),
+    check(f"Table 17 {row[0]} times base", float(row[4]), round(r["times_base"], 1), tol=0.06)
+    check(f"Table 17 {row[0]} share of events %", float(row[5].rstrip("%")),
           round(100 * r["share_of_events"], 1), tol=0.06)
 
 # Every figure below is read from section 3.8's prose, so the comparison is between

@@ -1,7 +1,7 @@
 """Stack four base learners under a logistic meta-learner, against two baselines.
 
-This answers the supervisor's eighth correction, which asked for an ensemble of at
-least three base learners combined by a meta-learner.
+The ensemble combines four base learners under a meta-learner, as specified in
+section 3.6 of the methodology.
 
 Chapter Two gives the rationale for stacking rather than bagging or boosting.
 Hajihosseinlou et al. (2024) argue that bagging targets variance and boosting targets
@@ -19,7 +19,7 @@ beats its own members but not a trivial rule has not earned anything.
                    the count over the previous four weeks with the long-run rate
                    breaking ties. This is the current practice Chapter One describes,
                    which is allocating by reference to the most recent incident list,
-                   and Research Question 1 asks explicitly whether the system improves
+                   and objective three asks explicitly whether the system improves
                    on it.
     long_run       Rank areas by their long-run event rate alone, ignoring recent
                    activity. This separates the flag component from the boost component

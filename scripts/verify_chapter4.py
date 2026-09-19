@@ -66,7 +66,7 @@ def mean_of(group: str, key: str, metric: str) -> float:
     return float(np.mean([f[metric] for f in group[key] if f.get(metric) is not None]))
 
 
-# ------------------------------------------------------- Table 16, the model comparison
+# ------------------------------------------------------- Table 18, the model comparison
 KEY = {"Baseline: long-run rate": "long_run", "Baseline: recency": "recency",
        "Gradient boosting": "gradient_boosting", "Penalised logistic, calibrated": "logistic",
        "Recurrent graph network": "stgnn", "Random forest": "random_forest",
@@ -74,83 +74,83 @@ KEY = {"Baseline: long-run rate": "long_run", "Baseline: recency": "recency",
 COLS = [(1, "average_precision", 0.00005), (2, "ap_lift_over_base", 0.05),
         (3, "roc_auc", 0.0005), (4, "brier", 0.00005),
         (5, "recall_at_10", 0.0005), (6, "recall_at_20", 0.0005), (7, "recall_at_50", 0.0005)]
-for row in table(16)[1:]:
+for row in table(18)[1:]:
     key = KEY[row[0]]
     for idx, metric, tol in COLS:
         if "applicable" in row[idx]:
-            check(f"T16 {row[0]} {metric} absent", True,
+            check(f"T18 {row[0]} {metric} absent", True,
                   all(f.get(metric) is None for f in ens["results"][key]))
             continue
-        check(f"T16 {row[0]} {metric}", num(row[idx]), mean_of(ens["results"], key, metric), tol)
+        check(f"T18 {row[0]} {metric}", num(row[idx]), mean_of(ens["results"], key, metric), tol)
 
-# ------------------------------------------------ Table 17, what calibration does
+# ------------------------------------------------ Table 19, what calibration does
 V = {"Penalised logistic, uncalibrated": "logistic",
      "Penalised logistic, calibrated": "logistic_calibrated",
      "Gradient boosting, uncalibrated": "gradient_boosting",
      "Gradient boosting, calibrated": "gradient_boosting_calibrated"}
-for row in table(17)[1:]:
+for row in table(19)[1:]:
     k = V[row[0]]
     for idx, metric, tol in ((1, "average_precision", 0.00005), (2, "roc_auc", 0.0005),
                              (3, "brier", 0.00005), (4, "recall_at_20", 0.0005)):
-        check(f"T17 {row[0]} {metric}", num(row[idx]), mean_of(hur["stage_one"], k, metric), tol)
+        check(f"T19 {row[0]} {metric}", num(row[idx]), mean_of(hur["stage_one"], k, metric), tol)
 
-# ------------------------------------------------------ Table 18, stage two vs constant
-for row in table(18)[1:]:
+# ------------------------------------------------------ Table 20, stage two vs constant
+for row in table(20)[1:]:
     f = hur["stage_two"][int(row[0]) - 1]
-    check(f"T18 fold {row[0]} positives", num(row[1]), f["n_positive"])
-    check(f"T18 fold {row[0]} mean actual", num(row[2]), f["mean_actual"], 0.0005)
-    check(f"T18 fold {row[0]} mean predicted", num(row[3]), f["mean_predicted"], 0.0005)
-    check(f"T18 fold {row[0]} mae fitted", num(row[4]), f["mae"], 0.0005)
-    check(f"T18 fold {row[0]} mae always one", num(row[5]), f["mae_always_one"], 0.0005)
-check("T18 fitted stage two loses in every fold", 5,
+    check(f"T20 fold {row[0]} positives", num(row[1]), f["n_positive"])
+    check(f"T20 fold {row[0]} mean actual", num(row[2]), f["mean_actual"], 0.0005)
+    check(f"T20 fold {row[0]} mean predicted", num(row[3]), f["mean_predicted"], 0.0005)
+    check(f"T20 fold {row[0]} mae fitted", num(row[4]), f["mae"], 0.0005)
+    check(f"T20 fold {row[0]} mae always one", num(row[5]), f["mae_always_one"], 0.0005)
+check("T20 fitted stage two loses in every fold", 5,
       sum(1 for f in hur["stage_two"] if f["mae"] > f["mae_always_one"]))
 
-# ------------------------------------------------------- Table 19, meta-learner weights
+# ------------------------------------------------------- Table 21, meta-learner weights
 w = {x["fold"]: x for x in ens["meta_weights"] if x["meta"] == "ensemble_unweighted"}
-for row in table(19)[1:]:
+for row in table(21)[1:]:
     f = w[int(row[0])]
     for idx, key in ((1, "logistic"), (2, "random_forest"), (3, "gradient_boosting"),
                      (4, "stgnn"), (5, "intercept")):
-        check(f"T19 fold {row[0]} {key}", num(row[idx]), f[key], 0.0005)
+        check(f"T21 fold {row[0]} {key}", num(row[idx]), f[key], 0.0005)
 
-# --------------------------------------------------------- Table 20, geography by state
+# --------------------------------------------------------- Table 22, geography by state
 s = scores.merge(panel[["pcode", "state"]].drop_duplicates(), on="pcode", how="left")
 st = s.groupby("state").agg(events=("occurred", "sum"), observed=("occurred", "mean"),
                             predicted=("ensemble_unweighted", "mean"))
-for row in table(20)[1:]:
+for row in table(22)[1:]:
     g = st.loc[row[0]]
-    check(f"T20 {row[0]} events", num(row[1]), g["events"])
-    check(f"T20 {row[0]} observed", num(row[2]), g["observed"], 0.00005)
-    check(f"T20 {row[0]} predicted", num(row[3]), g["predicted"], 0.00005)
-    check(f"T20 {row[0]} ratio", num(row[4]), g["predicted"] / g["observed"], 0.005)
+    check(f"T22 {row[0]} events", num(row[1]), g["events"])
+    check(f"T22 {row[0]} observed", num(row[2]), g["observed"], 0.00005)
+    check(f"T22 {row[0]} predicted", num(row[3]), g["predicted"], 0.00005)
+    check(f"T22 {row[0]} ratio", num(row[4]), g["predicted"] / g["observed"], 0.005)
 
-# ------------------------------------------------------------------- Table 21, drivers
+# ------------------------------------------------------------------- Table 23, drivers
 dr = pd.read_csv(APP / "drivers.csv")
 counts = dr["label"].value_counts()
-for row in table(21)[1:]:
+for row in table(23)[1:]:
     label = row[0][0].lower() + row[0][1:]
-    check(f"T21 {row[0][:44]}", num(row[1]), counts.get(label, 0))
+    check(f"T23 {row[0][:44]}", num(row[1]), counts.get(label, 0))
 
-# --------------------------------------------------- Table 22, the worked example
+# --------------------------------------------------- Table 24, the worked example
 fc = pd.read_csv(APP / "forecast.csv")
 sb = fc[fc["lga"] == "Sabon Birni"]
 pcode = sb["pcode"].iloc[0]
-t22 = table(22)
+t22 = table(24)
 for row in t22[1:4]:
     h = int(num(row[0]))
     r = sb[sb["horizon_days"] == h].iloc[0]
-    check(f"T22 {h}d probability", num(row[1]), 100 * r["probability"], 0.05)
-    check(f"T22 {h}d band", row[2], r["band"])
-    check(f"T22 {h}d rank", num(row[3]), r["rank"])
+    check(f"T24 {h}d probability", num(row[1]), 100 * r["probability"], 0.05)
+    check(f"T24 {h}d band", row[2], r["band"])
+    check(f"T24 {h}d rank", num(row[3]), r["rank"])
 d7 = dr[(dr["pcode"] == pcode) & (dr["horizon_days"] == 7)].set_index("label")
-for row in table(23)[1:]:
+for row in table(25)[1:]:
     label = row[0][0].lower() + row[0][1:]
     if label not in d7.index:
-        FAIL.append((f"T23 driver {row[0][:40]}", "listed", "not in drivers.csv")); continue
-    check(f"T23 driver {row[0][:40]} contribution", num(row[2]),
+        FAIL.append((f"T25 driver {row[0][:40]}", "listed", "not in drivers.csv")); continue
+    check(f"T25 driver {row[0][:40]} contribution", num(row[2]),
           d7.loc[label, "contribution"], 0.005)
     if row[1] != "grouped":
-        check(f"T23 driver {row[0][:40]} value", num(row[1]), d7.loc[label, "value"], 0.0005)
+        check(f"T25 driver {row[0][:40]} value", num(row[1]), d7.loc[label, "value"], 0.0005)
 
 # ------------------------------------------------------------------ prose figures
 check("4.2 held-out area-weeks", num(says(r"on ([\d,]+) held-out area-weeks")), len(scores))

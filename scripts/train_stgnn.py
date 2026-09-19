@@ -1,8 +1,7 @@
 """Fit and evaluate a spatio-temporal graph neural network on the area-week panel.
 
-This answers the supervisor's sixth correction, which asked for the problem to be
-reformulated as a spatio-temporal graph network in PyTorch Geometric Temporal rather
-than as a table of hand-built neighbour features.
+This formulates the problem as a spatio-temporal graph network in PyTorch Geometric
+Temporal rather than as a table of hand-built neighbour features.
 
 The distinction matters. The hurdle model in `train_hurdle.py` reads neighbour activity
 through features computed in advance, which fixes how far influence travels: a feature

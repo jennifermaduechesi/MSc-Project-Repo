@@ -31,12 +31,20 @@ figures = [int(m.group(1)) for p in paras
            if (m := re.match(r"Figure (\d+)\.", p.text.strip())) and p.style.name == "Table/Figure"]
 check("tables numbered 1..N in order", list(range(1, len(tables) + 1)), tables)
 check("figures numbered 1..N in order", list(range(1, len(figures) + 1)), figures)
+algos = [int(m.group(1)) for p in paras
+         if (m := re.fullmatch(r"Algorithm (\d+)", p.text.strip()))]
+check("algorithms numbered 1..N in order", list(range(1, len(algos) + 1)), algos)
+# A plural cross-reference ("Tables 13 and 14") is easy to miss when tables are renumbered,
+# because it does not match the singular pattern. Both halves must name a real table.
+plural = [(a, b) for a, b in re.findall(r"Tables (\d+) and (\d+)", text)]
+check("plural cross-references name real tables", [],
+      [n for pair in plural for n in pair if int(n) not in tables])
 apx_tables = [m.group(1) for p in paras
               if (m := re.fullmatch(r"Table (B[1-8])", p.text.strip()))]
 check("appendix tables numbered B1..BN in order",
       [f"B{i}" for i in range(1, len(apx_tables) + 1)], apx_tables)
-check("every numbered table has a table object",
-      len(tables) + len(apx_tables), len(doc.tables))
+check("every numbered table or algorithm has a table object",
+      len(tables) + len(apx_tables) + len(algos), len(doc.tables))
 check("every numbered figure has an image", len(figures), len(doc.inline_shapes))
 
 # ------------------------------------------------- each table has a title, each a note

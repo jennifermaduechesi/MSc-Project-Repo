@@ -1,6 +1,6 @@
 """Three experiments that make up the evaluation protocol in section 3.7.
 
-Each answers a supervisor correction that the modelling sections do not reach.
+Each covers a question the modelling sections do not reach.
 
   A. Horizon      C7 asked for a comparison of 7, 14 and 30 day horizons. The panel is
                   weekly, so the horizons that can actually be built are one, two and

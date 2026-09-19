@@ -255,6 +255,8 @@ def _set_single(paragraph) -> None:
 
 # ------------------------------------------------------------------------------ chapters
 TABLE_NUM = re.compile(r"^Table (\d+)$")
+# Algorithms carry their own caption series, so they never disturb table numbering.
+ALGO_NUM = re.compile(r"^Algorithm (\d+)$")
 FIGURE_IMG = re.compile(r"^!\[[^\]]*\]\(([^)]+)\)$")
 
 
@@ -284,7 +286,7 @@ def add_markdown(doc, path: Path, heading_text: str) -> None:
             para(doc, s[4:], style="Heading 3")
         elif s.startswith("## "):
             para(doc, s[3:], style="Heading 2")
-        elif TABLE_NUM.match(s):
+        elif TABLE_NUM.match(s) or ALGO_NUM.match(s):
             para(doc, s, style="No Spacing", indent_first=Pt(0))
         elif FIGURE_IMG.match(s):
             target = (path.parent / FIGURE_IMG.match(s).group(1)).resolve()
