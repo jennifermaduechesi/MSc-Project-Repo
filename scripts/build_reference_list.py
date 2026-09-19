@@ -42,6 +42,15 @@ ENTRY = re.compile(r"^(?P<authors>" + AUTHOR_START + r"[^(]{2,220}?)\s*"
 
 def fold(s: str) -> str:
     """Accent-insensitive, case-insensitive key for alphabetising."""
+    # NFKD leaves letters that are not a base plus a combining mark, so these would be
+    # stripped outright and sort wrongly. APA 6.25 alphabetises them as the plain letter,
+    # which is what puts Rod, and not "Rd", between Reinhart and Rose.
+    s = s.translate(str.maketrans({
+        "\u00f8": "o", "\u00d8": "O", "\u00e6": "ae", "\u00c6": "Ae",
+        "\u0153": "oe", "\u0152": "Oe", "\u00f0": "d", "\u00d0": "D",
+        "\u00fe": "th", "\u00de": "Th", "\u0142": "l", "\u0141": "L",
+        "\u0111": "d", "\u0110": "D", "\u00df": "ss",
+    }))
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9 ]", "", s.lower()).strip()

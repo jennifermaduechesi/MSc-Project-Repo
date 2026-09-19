@@ -115,7 +115,9 @@ def shorten(caption: str, limit: int = 88) -> str:
     head = re.match(r"^((?:Table|Figure) \d+\.\s*[^.]*)", caption)
     text = (head.group(1) if head else caption).strip().rstrip(".")
     if len(text) > limit:
-        text = text[:limit].rsplit(" ", 1)[0]
+        # Mark a trim rather than letting the listing quietly state a different title from
+        # the one above the table. verify_document fails on any entry carrying this mark.
+        text = text[:limit - 1].rsplit(" ", 1)[0] + "\u2026"
     return text
 
 

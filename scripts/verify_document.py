@@ -124,6 +124,8 @@ check("list of tables has one row per chapter table", len(tables), len(lot))
 check("appendix tables are kept out of the chapter list", 0,
       sum(1 for r in lot if "Table B" in r))
 check("list of figures has one row per figure", len(figures), len(lof))
+check("no listing entry is truncated", [],
+      [r.split("\t")[0] for r in lot + lof if "\u2026" in r])
 check("no placeholder text survives in the listings", 0,
       sum(1 for r in contents + lot + lof if "[" in r))
 check("every listing row ends in a page number", 0,

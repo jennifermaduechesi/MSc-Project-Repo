@@ -200,7 +200,7 @@ headings = re.findall(r"^### Objective (\w+):", ch5, re.M)
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 check("consistency: one conclusion per objective", len(objectives), len(headings))
 check("consistency: objectives numbered in order", [str(i) for i in range(1, len(headings) + 1)],
-      [str(WORDS[h]) for h in headings])
+      [str(WORDS[h.lower()]) for h in headings])
 check("consistency: no research questions remain anywhere", 0,
       sum((D / f).read_text().lower().count("research question")
           for f in ["chapter1_introduction_v2.md", "chapter2_literature_review.md",

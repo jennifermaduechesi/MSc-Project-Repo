@@ -164,8 +164,8 @@ def front_matter(doc, fm: dict) -> None:
         centred(MATRIC, blank_after=2)
         if second_page:
             centred(f"A project submitted to the {SCHOOL}, {UNI}")
-            centred("in partial fulfillment of the requirements for the award of the degree of")
-            centred("Master of Science (Data Science)", blank_after=2)
+            centred("in partial fulfillment of the requirements for the award of degree of")
+            centred(f"Master of Science (Data Science) of {UNI}.", blank_after=2)
         else:
             centred(DEPT)
             centred(SCHOOL)
