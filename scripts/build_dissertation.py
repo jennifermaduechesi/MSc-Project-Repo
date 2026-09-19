@@ -343,8 +343,56 @@ def appendices(doc) -> None:
     para(doc, "*Figure 8*. The data and modelling pipeline.", style="Table/Figure",
          indent_first=Pt(0))
 
+    appendix_b(doc)
+
+
+def appendix_b(doc) -> None:
+    """Render the review matrix. Shared by the full build and the Chapter Two review file."""
+    para(doc, "Appendix B: Matrix of Reviewed Literature",
+         style="Heading 2 for Appendix" if "Heading 2 for Appendix"
+         in [s.name for s in doc.styles] else "Heading 2")
+    lines = (D / "appendix_b_review_matrix.md").read_text(encoding="utf-8").split("\n")
+    apx_caption = re.compile(r"^Table B[1-8]$")
+    buffer: list[list[str]] = []
+    prose: list[str] = []
+
+    def flush_prose() -> None:
+        if prose:
+            para(doc, " ".join(prose), indent_first=Inches(0.5))
+            prose.clear()
+
+    for line in lines:
+        t = line.strip()
+        if t.startswith("|"):
+            flush_prose()
+            cells = [c.strip() for c in t.strip("|").split("|")]
+            if not all(set(c) <= set("-: ") for c in cells):
+                buffer.append(cells)
+            continue
+        if buffer:
+            add_table(doc, buffer)
+            buffer = []
+        if not t:
+            flush_prose()
+            continue
+        if t.startswith("# "):
+            continue
+        if apx_caption.match(t):
+            flush_prose()
+            para(doc, t, style="No Spacing", indent_first=Pt(0))
+        elif t.startswith("*") and t.endswith("*") and t.count("*") == 2:
+            flush_prose()
+            para(doc, t, style="Table/Figure", indent_first=Pt(0))
+        else:
+            prose.append(t)
+    flush_prose()
+    if buffer:
+        add_table(doc, buffer)
+
 
 # ---------------------------------------------------------------------------------- main
+
+
 def parse_front_matter() -> dict:
     text = (D / "front_matter.md").read_text(encoding="utf-8")
     parts = re.split(r"@([A-Z]+)@", text)[1:]
@@ -391,6 +439,10 @@ def single_chapter(index: int) -> Path:
         if child.tag != qn("w:sectPr"):
             body.remove(child)
     add_markdown(doc, D / filename, heading)
+    if index == 2:
+        # The review matrix answers a question raised on this chapter, so it travels with it.
+        para(doc, "Appendices", style="Heading 1")
+        appendix_b(doc)
     section = doc.sections[0]
     page_numbering(section, "decimal", 1, title_page=False)
     footer_page_number(section)

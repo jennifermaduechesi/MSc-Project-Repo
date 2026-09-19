@@ -31,7 +31,12 @@ figures = [int(m.group(1)) for p in paras
            if (m := re.match(r"Figure (\d+)\.", p.text.strip())) and p.style.name == "Table/Figure"]
 check("tables numbered 1..N in order", list(range(1, len(tables) + 1)), tables)
 check("figures numbered 1..N in order", list(range(1, len(figures) + 1)), figures)
-check("every numbered table has a table object", len(tables), len(doc.tables))
+apx_tables = [m.group(1) for p in paras
+              if (m := re.fullmatch(r"Table (B[1-8])", p.text.strip()))]
+check("appendix tables numbered B1..BN in order",
+      [f"B{i}" for i in range(1, len(apx_tables) + 1)], apx_tables)
+check("every numbered table has a table object",
+      len(tables) + len(apx_tables), len(doc.tables))
 check("every numbered figure has an image", len(figures), len(doc.inline_shapes))
 
 # ------------------------------------------------- each table has a title, each a note
@@ -105,7 +110,11 @@ contents = listing_rows("TABLE OF CONTENTS", "LIST OF TABLES")
 lot = listing_rows("LIST OF TABLES", "LIST OF FIGURES")
 lof = listing_rows("LIST OF FIGURES", "Chapter One: Introduction")
 check("table of contents is populated", True, len(contents) > 40)
-check("list of tables has one row per table", len(tables), len(lot))
+# Appendix tables carry their own B-series numbering and are found through the appendix
+# heading in the contents, so the List of Tables covers the numbered chapter tables only.
+check("list of tables has one row per chapter table", len(tables), len(lot))
+check("appendix tables are kept out of the chapter list", 0,
+      sum(1 for r in lot if "Table B" in r))
 check("list of figures has one row per figure", len(figures), len(lof))
 check("no placeholder text survives in the listings", 0,
       sum(1 for r in contents + lot + lof if "[" in r))

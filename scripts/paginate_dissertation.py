@@ -62,7 +62,9 @@ def wanted() -> list[tuple[int, str, str]]:
             items.append((0, t, "front"))
         elif style == "Heading 1":
             items.append((0, t, "toc"))
-        elif style == "Heading 2":
+        elif style in ("Heading 2", "Heading 2 for Appendix"):
+            # The template's appendix heading style is a Heading 2 variant, so without this
+            # the appendices reach the document but never the table of contents.
             items.append((1, t, "toc"))
         elif style == "Heading 3":
             items.append((2, t, "toc"))
