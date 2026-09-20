@@ -196,7 +196,7 @@ c1 = (D / "chapter1_introduction_v2.md").read_text()
 block = c1[c1.index("The specific objectives are:"):]
 block = block[:block.index("\n## ")]
 objectives = [m.group(1) for m in re.finditer(r"^(\d+)\.\s+To ", block, re.M)]
-headings = re.findall(r"^### Objective (\w+):", ch5, re.M)
+headings = re.findall(r"^##+ Objective (\w+):", ch5, re.M)
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 check("consistency: one conclusion per objective", len(objectives), len(headings))
 check("consistency: objectives numbered in order", [str(i) for i in range(1, len(headings) + 1)],

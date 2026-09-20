@@ -16,6 +16,11 @@ from pathlib import Path
 
 from docx import Document
 
+NUMPAT = r"(?:\d+\.\d+|[A-Z]\.\d+)"
+# The List of Tables covers the numbered chapter tables. Appendix tables carry their
+# own B series and are reached through the appendix heading in the contents.
+CHAPTER_NUM = r"\d+\.\d+"
+
 sys.path.insert(0, str(Path(__file__).parent))
 import build_dissertation as bd
 
@@ -68,9 +73,9 @@ def wanted() -> list[tuple[int, str, str]]:
             items.append((1, t, "toc"))
         elif style == "Heading 3":
             items.append((2, t, "toc"))
-        elif re.fullmatch(r"Table \d+", t):
+        elif re.fullmatch(rf"Table {CHAPTER_NUM}", t):
             items.append((0, t, "table"))
-        elif style == "Table/Figure" and re.match(r"Figure \d+\.", t):
+        elif style == "Table/Figure" and re.match(rf"Figure {NUMPAT}:", t):
             items.append((0, t, "figure"))
     return items
 
@@ -112,7 +117,9 @@ def locate(pages: list[str], items: list[tuple[int, str, str]]) -> dict[str, int
 
 def shorten(caption: str, limit: int = 88) -> str:
     """One line per listing entry: keep the first sentence, and trim it if still too long."""
-    head = re.match(r"^((?:Table|Figure) \d+\.\s*[^.]*)", caption)
+    # Captions now carry chapter-based numbers ("Table 3.10", "Figure 4.1:"), so the
+    # number itself contains a full stop and cannot end the first sentence.
+    head = re.match(rf"^((?:Table|Figure) {NUMPAT}[.:]\s*[^.]*)", caption)
     text = (head.group(1) if head else caption).strip().rstrip(".")
     if len(text) > limit:
         # Mark a trim rather than letting the listing quietly state a different title from
@@ -136,7 +143,7 @@ def build_listings(pages: list[str], items, found) -> dict:
     paras = [p for p in doc.paragraphs]
     titles = {}
     for i, p in enumerate(paras):
-        if re.fullmatch(r"Table \d+", p.text.strip()):
+        if re.fullmatch(rf"Table {CHAPTER_NUM}", p.text.strip()):
             nxt = paras[i + 1].text.strip() if i + 1 < len(paras) else ""
             titles[p.text.strip()] = nxt
     for level, text, kind in items:

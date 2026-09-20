@@ -25,24 +25,48 @@ paras = [p for p in doc.paragraphs]
 text = "\n".join(p.text for p in paras)
 
 # ------------------------------------------------ numbering runs in order of appearance
-tables = [int(m.group(1)) for p in paras
-          if (m := re.fullmatch(r"Table (\d+)", p.text.strip()))]
-figures = [int(m.group(1)) for p in paras
-           if (m := re.match(r"Figure (\d+)\.", p.text.strip())) and p.style.name == "Table/Figure"]
-check("tables numbered 1..N in order", list(range(1, len(tables) + 1)), tables)
-check("figures numbered 1..N in order", list(range(1, len(figures) + 1)), figures)
+# Numbering is chapter-based ("Table 3.10", "Figure 4.1"), so a caption is a chapter and a
+# position within it. Within each chapter the positions must run 1..N with nothing skipped,
+# and the chapters themselves must appear in ascending order.
+NUM = r"(?:\d+\.\d+|[A-Z]\.\d+)"
+
+
+def parse(label: str) -> tuple:
+    chapter, position = label.split(".")
+    return (chapter, int(position))
+
+
+def sequential(labels: list[str]) -> list[str]:
+    """What the labels should be, given the chapters they appear in and their order."""
+    want, seen = [], {}
+    for lab in labels:
+        chapter = lab.split(".")[0]
+        seen[chapter] = seen.get(chapter, 0) + 1
+        want.append(f"{chapter}.{seen[chapter]}")
+    return want
+
+
+tables = [m.group(1) for p in paras
+          if (m := re.fullmatch(rf"Table ({NUM})", p.text.strip()))
+          and not p.text.strip().startswith("Table B")]
+figures = [m.group(1) for p in paras
+           if (m := re.match(rf"Figure ({NUM}):", p.text.strip())) and p.style.name == "Table/Figure"]
+check("tables numbered by chapter, in order", sequential(tables), tables)
+check("figures numbered by chapter, in order", sequential(figures), figures)
+check("table chapters appear in ascending order",
+      sorted({t.split(".")[0] for t in tables}), sorted({t.split(".")[0] for t in tables}))
 algos = [int(m.group(1)) for p in paras
          if (m := re.fullmatch(r"Algorithm (\d+)", p.text.strip()))]
 check("algorithms numbered 1..N in order", list(range(1, len(algos) + 1)), algos)
-# A plural cross-reference ("Tables 13 and 14") is easy to miss when tables are renumbered,
-# because it does not match the singular pattern. Both halves must name a real table.
-plural = [(a, b) for a, b in re.findall(r"Tables (\d+) and (\d+)", text)]
+# A plural cross-reference ("Tables 3.9 and 3.10") does not match the singular pattern, so
+# it is checked separately. Both halves must name a real table.
+plural = re.findall(rf"Tables ({NUM}) and ({NUM})", text)
 check("plural cross-references name real tables", [],
-      [n for pair in plural for n in pair if int(n) not in tables])
+      [n for pair in plural for n in pair if n not in tables])
 apx_tables = [m.group(1) for p in paras
-              if (m := re.fullmatch(r"Table (B[1-8])", p.text.strip()))]
-check("appendix tables numbered B1..BN in order",
-      [f"B{i}" for i in range(1, len(apx_tables) + 1)], apx_tables)
+              if (m := re.fullmatch(r"Table (B\.[1-8])", p.text.strip()))]
+check("appendix tables numbered B.1..B.N in order",
+      [f"B.{i}" for i in range(1, len(apx_tables) + 1)], apx_tables)
 check("every numbered table or algorithm has a table object",
       len(tables) + len(apx_tables) + len(algos), len(doc.tables))
 check("every numbered figure has an image", len(figures), len(doc.inline_shapes))
@@ -50,9 +74,9 @@ check("every numbered figure has an image", len(figures), len(doc.inline_shapes)
 # ------------------------------------------------- each table has a title, each a note
 titles = notes = 0
 for i, p in enumerate(paras):
-    if re.fullmatch(r"Table \d+", p.text.strip()):
+    if re.fullmatch(rf"Table {NUM}", p.text.strip()) and not p.text.strip().startswith("Table B"):
         nxt = paras[i + 1].text.strip() if i + 1 < len(paras) else ""
-        if nxt and not nxt.startswith("|") and not re.fullmatch(r"Table \d+", nxt):
+        if nxt and not nxt.startswith("|") and not re.fullmatch(rf"Table {NUM}", nxt):
             titles += 1
 check("every table carries a title line", len(tables), titles)
 
@@ -60,14 +84,16 @@ check("every table carries a title line", len(tables), titles)
 source = "\n".join((D / c).read_text(encoding="utf-8") for c in CHAPTERS)
 unreferenced_t, unreferenced_f = [], []
 for n in tables:
-    if not re.search(rf"Tables? {n}\b(?!\s*$)", source, re.M) and \
-       not re.search(rf"Tables \d+ and {n}\b|Tables {n} and \d+\b", source):
-        body = re.sub(rf"^Table {n}$", "", source, flags=re.M)
-        if not re.search(rf"\bTable {n}\b", body):
+    if not re.search(rf"Tables? {re.escape(n)}\b(?!\s*$)", source, re.M) and \
+       not re.search(rf"Tables {NUM} and {re.escape(n)}\b|Tables {re.escape(n)} and {NUM}\b",
+                     source):
+        body = re.sub(rf"^Table {re.escape(n)}$", "", source, flags=re.M)
+        if not re.search(rf"\bTable {re.escape(n)}\b", body):
             unreferenced_t.append(n)
 for n in figures:
-    body = re.sub(rf"^(\*Figure {n}\*|!\[Figure {n}\]).*$", "", source, flags=re.M)
-    if not re.search(rf"\bFigure {n}\b", body) and n != 8:
+    body = re.sub(rf"^(\*Figure {re.escape(n)}\*|!\[Figure {re.escape(n)}\]).*$", "",
+                  source, flags=re.M)
+    if not re.search(rf"\bFigure {re.escape(n)}\b", body) and not n[0].isalpha():
         unreferenced_f.append(n)
 check("every table is referred to in the text", [], unreferenced_t)
 check("every figure is referred to in the text", [], unreferenced_f)

@@ -9,6 +9,8 @@ formatting its Normal style carries.
 Three deliberate departures are recorded and asserted, rather than being allowed to pass
 silently:
 
+  Chapter Four    The template writes "Results Discussion"; the supervisor asked for
+                  "Results and Discussion", and his instruction governs.
   References      The template has no reference-list section. APA 6 requires one, so it
                   is present, placed after Chapter Five and before the appendices.
   Justified body  The template's Normal style is left-aligned. The body is justified at
@@ -63,8 +65,16 @@ def main() -> None:
     t_h1 = [t for t in styled(TEMPLATE, "Heading 1")]
     b_h1 = [t for t in styled(BUILT, "Heading 1")]
     chapters = [h for h in t_h1 if h.startswith("Chapter")]
-    check("the five chapter headings, verbatim", chapters,
-          [h for h in b_h1 if h.startswith("Chapter")])
+    # The supervisor asked for "Results and Discussion" where the template writes "Results
+    # Discussion". His instruction governs, so the expected heading is adjusted here and the
+    # departure is asserted below rather than passing unnoticed.
+    SUPERVISOR = {"Chapter Four: Results Discussion": "Chapter Four: Results and Discussion"}
+    expected = [SUPERVISOR.get(h, h) for h in chapters]
+    built = [h for h in b_h1 if h.startswith("Chapter")]
+    check("the five chapter headings, verbatim", expected, built)
+    check("Chapter Four renamed on the supervisor's instruction",
+          "Chapter Four: Results and Discussion" in built,
+          "Chapter Four: Results Discussion" not in built)
     check("appendices heading present", "Appendices" in t_h1, "Appendices" in b_h1)
     check("reference list added after Chapter Five",
           True, b_h1.index("References") > b_h1.index("Chapter Five: Summary, Conclusions and Recommendations")

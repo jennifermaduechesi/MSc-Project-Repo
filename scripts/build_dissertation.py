@@ -37,7 +37,7 @@ CHAPTERS = [
     ("Chapter One: Introduction", "chapter1_introduction_v2.md"),
     ("Chapter Two: Literature Review", "chapter2_literature_review.md"),
     ("Chapter Three: Methodology", "chapter3_methodology.md"),
-    ("Chapter Four: Results Discussion", "chapter4_results.md"),
+    ("Chapter Four: Results and Discussion", "chapter4_results.md"),
     ("Chapter Five: Summary, Conclusions and Recommendations", "chapter5_conclusions.md"),
 ]
 FIGURE_WIDTH = Inches(5.9)
@@ -174,7 +174,10 @@ def front_matter(doc, fm: dict) -> None:
         doc.add_page_break()
 
     para(doc, "ABSTRACT", style="Section Title")
-    para(doc, fm["abstract"], indent_first=Inches(0.5))
+    # The abstract is structured (introduction, methodology, results, conclusion), so its
+    # blank-line breaks have to survive into the document as separate paragraphs.
+    for block in [b.strip() for b in fm["abstract"].split("\n\n") if b.strip()]:
+        para(doc, " ".join(block.split()), indent_first=Inches(0.5))
     para(doc)
     para(doc, fm["keywords"], indent_first=Pt(0))
     doc.add_page_break()
@@ -254,7 +257,7 @@ def _set_single(paragraph) -> None:
 
 
 # ------------------------------------------------------------------------------ chapters
-TABLE_NUM = re.compile(r"^Table (\d+)$")
+TABLE_NUM = re.compile(r"^Table (\d+\.\d+|[A-Z]\.\d+)$")
 # Algorithms carry their own caption series, so they never disturb table numbering.
 ALGO_NUM = re.compile(r"^Algorithm (\d+)$")
 FIGURE_IMG = re.compile(r"^!\[[^\]]*\]\(([^)]+)\)$")
@@ -342,7 +345,7 @@ def appendices(doc) -> None:
               "Five from the stored artefacts.", indent_first=Inches(0.5))
     p = para(doc, style="Table/Figure", align=WD_ALIGN_PARAGRAPH.CENTER, indent_first=Pt(0))
     p.add_run().add_picture(str((D / "figure8_pipeline.png").resolve()), width=Inches(5.4))
-    para(doc, "*Figure 8*. The data and modelling pipeline.", style="Table/Figure",
+    para(doc, "*Figure A.1*: The data and modelling pipeline.", style="Table/Figure",
          indent_first=Pt(0))
 
     appendix_b(doc)
@@ -354,7 +357,7 @@ def appendix_b(doc) -> None:
          style="Heading 2 for Appendix" if "Heading 2 for Appendix"
          in [s.name for s in doc.styles] else "Heading 2")
     lines = (D / "appendix_b_review_matrix.md").read_text(encoding="utf-8").split("\n")
-    apx_caption = re.compile(r"^Table B[1-8]$")
+    apx_caption = re.compile(r"^Table B\.[1-8]$")
     buffer: list[list[str]] = []
     prose: list[str] = []
 
