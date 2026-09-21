@@ -143,6 +143,21 @@ def listing_rows(after: str, stop: str) -> list[str]:
 contents = listing_rows("TABLE OF CONTENTS", "LIST OF TABLES")
 lot = listing_rows("LIST OF TABLES", "LIST OF FIGURES")
 lof = listing_rows("LIST OF FIGURES", "Chapter One: Introduction")
+# The abstract is structured (introduction, methodology, results, conclusion) at the
+# supervisor's instruction, and capped at 250 words.
+abstract = []
+for i, q in enumerate(paras):
+    if q.text.strip() == "ABSTRACT":
+        for r in paras[i + 1:]:
+            t = r.text.strip()
+            if not t or t.startswith("Keywords:") or r.style.name == "Section Title":
+                break
+            abstract.append(t)
+        break
+check("abstract is at least two paragraphs", True, len(abstract) >= 2)
+check("abstract is 250 words or fewer", True,
+      0 < sum(len(a.split()) for a in abstract) <= 250)
+
 check("table of contents is populated", True, len(contents) > 40)
 # Appendix tables carry their own B-series numbering and are found through the appendix
 # heading in the contents, so the List of Tables covers the numbered chapter tables only.
