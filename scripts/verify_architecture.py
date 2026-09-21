@@ -134,6 +134,26 @@ def main() -> None:
     check("no em dashes", 0, CH3.count("—"))
     check("no supervisor references", 0, len(re.findall(r"supervisor", CH3, re.I)))
 
+    print("\n-- the architecture diagram and its components ------------------------------")
+    check("architecture figure is present in section 3.6", True,
+          "![Figure 3.2](figure_architecture.png)" in CH3)
+    check("the figure file exists", True,
+          Path("dissertation/figure_architecture.png").exists())
+    check("figures in Chapter Three run 3.1 to 3.3",
+          ["3.1", "3.2", "3.3"], re.findall(r"^\*Figure (3\.\d)\*:", CH3, re.M))
+    # Every row of the components table has to be explained in prose, not only tabulated.
+    block = CH3[CH3.index("Each component of Figure 3.2"):CH3.index("### The Base Learners")]
+    explained = len(re.findall(r"^\*\*[A-Z][^*]+\*\*", block, re.M))
+    rows = CH3[CH3.index("Table 3.9"):]
+    rows = rows[:rows.index("*Note*")]
+    n_rows = len([l for l in rows.split("\n")
+                  if l.strip().startswith("|") and not set(l.replace("|", "").strip()) <= set("-: ")
+                  and not l.strip().startswith("| Component")])
+    # The figure carries components the table does not (the two sources, the split), so the
+    # prose covers at least every row of the table and may cover more.
+    check("every component of Table 3.9 is explained in prose", True, explained >= n_rows)
+    check("the prose also covers the figure-only components", True, explained > n_rows)
+
     print("=" * 96)
     print(f"{passes} passed, {len(fails)} failed, {passes + len(fails)} checks")
     print("=" * 96)

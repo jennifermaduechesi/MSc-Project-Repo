@@ -31,7 +31,7 @@ DEPT = "Computer and Information Sciences Department"
 SCHOOL = "School of Science and Technology"
 UNI = "Pan-Atlantic University"
 DATE = "September 2026"
-SUPERVISORS = [("Mr Solomon Alile", "Supervisor 1"), ("Dr Adubi", "Supervisor 2")]
+SUPERVISORS = [("Mr Solomon Alile", "Supervisor 1"), ("Dr. Patrick Osatohanmwen", "Supervisor 2")]
 
 CHAPTERS = [
     ("Chapter One: Introduction", "chapter1_introduction_v2.md"),

@@ -14,7 +14,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import FancyArrowPatch, Rectangle
 
 OUT = Path("dissertation")
 PROC = Path("data/processed")
@@ -256,14 +256,130 @@ def figure_eight() -> None:
     plt.close(fig)
 
 
+def figure_architecture() -> None:
+    """The proposed model architecture, component by component.
+
+    Every count in the diagram is read from the panel, the adjacency file or the run
+    configuration, so the picture cannot drift away from the model it claims to show.
+    """
+    import pandas as pd
+    from matplotlib.patches import Ellipse, FancyBboxPatch
+
+    cfg = json.load(open(PROC / "ensemble_results.json"))["config"]
+    inner, test = cfg["inner_weeks"], cfg["test_weeks"]
+    panel = pd.read_parquet(PROC / "panel.parquet")
+    not_features = {"pcode", "week", "lga", "state", "event_count", "occurred"}
+    n_feat = len([c for c in panel.columns if c not in not_features])
+    n_area, n_week, n_row = panel.pcode.nunique(), panel.week.nunique(), len(panel)
+    n_edge = len(pd.read_csv(Path("data/reference/lga_adjacency.csv")))
+
+    fig, ax = plt.subplots(figsize=(11.6, 13.2))
+    ax.set_xlim(0, 11.6); ax.set_ylim(0, 13.2); ax.axis("off")
+    WIRE = "#6E6E6E"
+
+    def box(x, y, w, h, text, fill=LIGHT, fs=11.5, bold=False, ec=MID, tc=INK):
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.06",
+                                    facecolor=fill, edgecolor=ec, lw=1.4))
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=fs,
+                color=tc, fontweight="bold" if bold else "normal", linespacing=1.45)
+        return dict(cx=x + w / 2, bottom=y, top=y + h, left=x, right=x + w)
+
+    def cylinder(x, y, w, h, text):
+        r = h * 0.15
+        ax.add_patch(Rectangle((x, y + r), w, h - 2 * r, facecolor=LIGHT, edgecolor=MID, lw=1.4))
+        ax.add_patch(Ellipse((x + w / 2, y + h - r), w, 2 * r, facecolor=LIGHT, edgecolor=MID, lw=1.4))
+        ax.add_patch(Ellipse((x + w / 2, y + r), w, 2 * r, facecolor=LIGHT, edgecolor=MID, lw=1.4))
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=11.5, linespacing=1.45)
+        return dict(cx=x + w / 2, bottom=y, top=y + h, left=x, right=x + w)
+
+    def wire(*pts):
+        for a, b in zip(pts, pts[1:]):
+            ax.plot([a[0], b[0]], [a[1], b[1]], color=WIRE, lw=1.4, solid_capstyle="round")
+
+    def head(p_from, p_to):
+        ax.add_patch(FancyArrowPatch(p_from, p_to, arrowstyle="-|>", mutation_scale=14,
+                                     color=WIRE, lw=1.4, shrinkA=0, shrinkB=0))
+
+    def down(a, b):
+        head((a["cx"], a["bottom"]), (b["cx"], b["top"]))
+
+    # ---------------------------------------------------------------- sources and inputs
+    c1 = cylinder(0.60, 11.95, 3.40, 1.10, "Incident corpus\ntwo supplied files")
+    c2 = cylinder(7.60, 11.95, 3.40, 1.10, "Reference geography\nofficial boundaries")
+    prep = box(0.60, 10.55, 3.40, 0.95, "Data preparation\nmerge, deduplicate, place")
+    geo = box(7.60, 10.55, 3.40, 0.95, "Neighbour definition\nshared boundary")
+    panel_b = box(0.60, 8.95, 3.40, 1.20,
+                  f"Feature panel\n{n_area} areas x {n_week} weeks\n"
+                  f"{n_row:,} rows, {n_feat} features", fill="white", ec=INK)
+    graph_b = box(7.60, 8.95, 3.40, 1.20,
+                  f"Adjacency graph\n{n_area} nodes, {n_edge:,} edges\nheld fixed across time",
+                  fill="white", ec=INK)
+    down(c1, prep); down(c2, geo); down(prep, panel_b); down(geo, graph_b)
+
+    # ------------------------------------------------------------------------ the split
+    split = box(2.40, 7.35, 6.80, 0.95,
+                f"Rolling-origin split\ntraining weeks  |  inner block {inner} weeks  |  "
+                f"test block {test} weeks")
+    wire((panel_b["cx"], panel_b["bottom"]), (panel_b["cx"], 8.62), (split["cx"], 8.62))
+    head((split["cx"], 8.62), (split["cx"], split["top"]))
+
+    # -------------------------------------------------------------------- base learners
+    names = ["Penalised\nlogistic\nregression", "Random\nforest", "Gradient\nboosting",
+             "Recurrent graph\nnetwork\n(GConvGRU)"]
+    xs, wl, ly, lh = [0.60, 3.30, 6.00, 8.70], 2.30, 5.55, 1.35
+    learners = [box(x, ly, wl, lh, nm) for x, nm in zip(xs, names)]
+
+    fan_y = 7.05
+    wire((split["cx"], split["bottom"]), (split["cx"], fan_y))
+    wire((learners[0]["cx"], fan_y), (learners[-1]["cx"] - 0.45, fan_y))
+    for i, b in enumerate(learners):
+        x = b["cx"] - 0.45 if i == 3 else b["cx"]
+        head((x, fan_y), (x, b["top"]))
+
+    # Only the graph network reads the adjacency structure directly. It enters on the right
+    # of that box so it never crosses the bus feeding the other three.
+    gx = learners[3]["cx"] + 0.55
+    wire((graph_b["cx"], graph_b["bottom"]), (graph_b["cx"], 7.62), (gx, 7.62))
+    head((gx, 7.62), (gx, learners[3]["top"]))
+    ax.text(gx + 0.12, 7.35, "graph\nonly", fontsize=9.5, color="#444444", va="center",
+            linespacing=1.3)
+
+    # ------------------------------------------------------------- combination and output
+    logit = box(2.90, 3.95, 5.80, 0.80,
+                "Log-odds transform\nthe four probabilities become four columns")
+    join_y = 5.05
+    for b in learners:
+        wire((b["cx"], b["bottom"]), (b["cx"], join_y))
+    wire((learners[0]["cx"], join_y), (learners[-1]["cx"], join_y))
+    head((logit["cx"], join_y), (logit["cx"], logit["top"]))
+
+    meta = box(2.90, 2.75, 5.80, 0.85, "Meta-learner\nlogistic regression on the four columns",
+               fill=DARK, tc="white", ec=DARK, bold=True)
+    prob = box(2.90, 1.60, 5.80, 0.80,
+               "Calibrated occurrence probability\none value per area per week",
+               fill="white", ec=INK)
+    band = box(2.90, 0.55, 5.80, 0.75,
+               "Risk banding\nfour tiers at fixed multiples of the base rate")
+    ui = box(0.60, -0.55, 10.40, 0.75,
+             "Decision-support interface: ranked areas, probability, tier and per-area drivers",
+             fill=MID, bold=True, fs=12)
+    ax.set_ylim(-0.7, 13.2)
+    down(logit, meta); down(meta, prob); down(prob, band); down(band, ui)
+
+    fig.savefig(OUT / "figure_architecture.png", dpi=DPI, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     figure_two()
     figure_three()
+    figure_architecture()
     figure_four()
     figure_five()
     figure_six()
     figure_eight()
-    for f in ("figure2_leakage_window.png", "figure3_stacking_design.png",
+    for f in ("figure2_leakage_window.png", "figure_architecture.png",
+              "figure3_stacking_design.png",
               "figure4_fold_performance.png", "figure6_horizon_tradeoff.png",
               "figure5_calibration.png", "figure8_pipeline.png"):
         print(f"wrote {OUT / f} ({(OUT / f).stat().st_size:,} bytes)")
