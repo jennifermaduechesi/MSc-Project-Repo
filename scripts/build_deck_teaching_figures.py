@@ -241,60 +241,65 @@ def pic_reporting():
 
 
 def pic_folds():
-    """How much of the record taught the models and how much tested them.
+    """Which weeks taught the models and which weeks marked them.
 
-    Weeks per round are Table 3.7. Each round tests on 52 weeks, so five rounds
+    Weeks and dates are Table 3.7. Each round tests on 52 weeks, so five rounds
     cover 260 of the 655 weeks, which is the 201,240 held-out area-weeks
-    reported in Chapter Four once multiplied by the 774 areas.
+    Chapter Four reports once multiplied by the 774 areas.
     """
-    trains = [395, 447, 499, 551, 603]
+    rounds = [(395, "2 Aug 2021", "Aug 2021 to Aug 2022"),
+              (447, "1 Aug 2022", "Aug 2022 to Jul 2023"),
+              (499, "31 Jul 2023", "Aug 2023 to Jul 2024"),
+              (551, "29 Jul 2024", "Aug 2024 to Jul 2025"),
+              (603, "28 Jul 2025", "Aug 2025 to Jul 2026")]
     TEST, TOTAL = 52, 655
     SC = 10.0 / TOTAL
-    fig, ax = plt.subplots(figsize=(10.6, 5.9))
+    fig, ax = plt.subplots(figsize=(12.2, 6.0))
 
-    # --- the whole record, split once ---
+    # --- the record split once ---
     split = 395 * SC
-    ax.add_patch(FancyBboxPatch((0, 5.30), split, 0.62,
+    ax.add_patch(FancyBboxPatch((0, 5.36), split, 0.62,
                  boxstyle="round,pad=0.01,rounding_size=0.05",
                  facecolor=PALE, edgecolor=MUTED, linewidth=1.2))
-    ax.add_patch(FancyBboxPatch((split, 5.30), 10.0 - split, 0.62,
+    ax.add_patch(FancyBboxPatch((split, 5.36), 10.0 - split, 0.62,
                  boxstyle="round,pad=0.01,rounding_size=0.05",
                  facecolor=RED, edgecolor="none"))
-    ax.text(split / 2, 5.61, "60%", ha="center", va="center",
+    ax.text(split / 2, 5.67, "60%", ha="center", va="center",
             fontsize=17, color=GREEN, weight="bold")
-    ax.text(split + (10 - split) / 2, 5.61, "40%", ha="center", va="center",
+    ax.text(split + (10 - split) / 2, 5.67, "40%", ha="center", va="center",
             fontsize=17, color="white", weight="bold")
-    ax.text(split / 2, 4.94, "395 weeks, learning only",
+    ax.text(split / 2, 4.99, "395 weeks, learning only",
             ha="center", fontsize=10.2, color=GREY)
-    ax.text(split + (10 - split) / 2, 4.94, "260 weeks, each tested once",
+    ax.text(split + (10 - split) / 2, 4.99, "260 weeks, each marked once",
             ha="center", fontsize=10.2, color=RED)
-    ax.text(-0.18, 5.61, "All 655 weeks", ha="right", va="center",
-            fontsize=11.5, color=GREEN, weight="bold")
+    ax.text(-0.18, 5.67, "Jan 2014 to Aug 2026", ha="right", va="center",
+            fontsize=11, color=GREEN, weight="bold")
 
-    ax.plot([-2.9, 11.9], [4.48, 4.48], color=FAINT, linewidth=1.1)
-    ax.text(-2.9, 4.16, "Inside one round, the split is about 90 to 10",
-            ha="left", fontsize=11, color=MID, style="italic")
+    ax.plot([-3.6, 15.0], [4.52, 4.52], color=FAINT, linewidth=1.1)
+    ax.text(-3.6, 4.18, "I never picked 90 to 10. A full year is marked each time, and the learning weeks simply pile up behind it.",
+            ha="left", fontsize=10.4, color=MID, style="italic")
 
     # --- the five rounds ---
-    for i, tr in enumerate(trains):
-        y = 3.40 - i * 0.76
-        w = tr * SC
-        t = TEST * SC
-        ax.add_patch(FancyBboxPatch((0, y - 0.24), w, 0.48,
+    for i, (tr, cut, span) in enumerate(rounds):
+        y = 3.44 - i * 0.78
+        w, t = tr * SC, TEST * SC
+        ax.add_patch(FancyBboxPatch((0, y - 0.25), w, 0.50,
                      boxstyle="round,pad=0.01,rounding_size=0.05",
                      facecolor=PALE, edgecolor=MUTED, linewidth=1.0))
-        ax.add_patch(FancyBboxPatch((w, y - 0.24), t, 0.48,
+        ax.add_patch(FancyBboxPatch((w, y - 0.25), t, 0.50,
                      boxstyle="round,pad=0.01,rounding_size=0.05",
                      facecolor=RED, edgecolor="none"))
         ax.text(-0.18, y, f"Round {i+1}", ha="right", va="center",
                 fontsize=10.4, color=GREEN, weight="bold")
         pct = tr / (tr + TEST) * 100
-        ax.text(w / 2, y, f"learned from {tr} weeks", ha="center", va="center",
-                fontsize=9.2, color=GREY)
-        ax.text(w + t + 0.22, y, f"{pct:.0f}% learn   {100-pct:.0f}% test",
-                ha="left", va="center", fontsize=9.8, color=GREEN)
-    ax.set_xlim(-2.95, 12.6)
-    ax.set_ylim(-0.75, 6.25)
+        ax.text(w / 2, y, f"learned from Jan 2014 to {cut}",
+                ha="center", va="center", fontsize=8.9, color=GREY)
+        ax.text(w + t + 0.24, y + 0.10, f"marked on {span}",
+                ha="left", va="center", fontsize=9.4, color=RED, weight="bold")
+        ax.text(w + t + 0.24, y - 0.20, f"{pct:.0f}% learn, {100-pct:.0f}% marked",
+                ha="left", va="center", fontsize=8.8, color=GREY)
+    ax.set_xlim(-3.65, 15.1)
+    ax.set_ylim(-0.80, 6.30)
     ax.axis("off")
     save(fig, "pic_folds.png")
 
